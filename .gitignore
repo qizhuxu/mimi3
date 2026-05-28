@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.claude
 .venv/
 venv/
 
@@ -24,3 +25,8 @@ archive/http_captures/
 .ai_memory/
 .vscodestatus_page/
 status_page/
+
+gateway_metrics.db
+gateway_snapshot.json
+mimo2api.lock
+users/
