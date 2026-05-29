@@ -13,6 +13,9 @@ class GatewayState:
         self.pending_queues: Dict[str, asyncio.Queue] = {}
         self.ws_to_req_ids: Dict[int, set] = {}  # id(ws) -> {req_id, ...}
         self.req_id_to_ws_id: Dict[str, int] = {}
+        # 节点身份映射: 每个 bridge.py 连接时通过 ?node=<uid> 自报家门
+        self.node_to_ws: Dict[str, WebSocket] = {}
+        self.ws_id_to_node: Dict[int, str] = {}
         self.req_id_timestamps: Dict[str, float] = {}
         self.current_client_index: int = 0
         self.rebuild_event: asyncio.Event = asyncio.Event()

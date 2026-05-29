@@ -82,7 +82,7 @@ def load_all_users() -> dict:
     return users
 
 
-async def get_bridge_code() -> str:
+async def get_bridge_code(node_id: str | None = None) -> str:
     """读取本地 bridge 代码文本"""
     import re
     bridge_path = os.path.join(os.path.dirname(__file__), "bridge.py")
@@ -90,11 +90,15 @@ async def get_bridge_code() -> str:
         with open(bridge_path, "r", encoding="utf-8") as f:
             return f.read()
     code = await asyncio.to_thread(_read)
-    
+
     # 获取全局 main.py 配置入口配置好的统一穿透通信地址，若缺失则降级 fallback
     ws_url = os.environ.get("MIMO2API_WS_URL")
     if not ws_url:
         raise ValueError("MIMO2API_WS_URL环境变量未配置")
+    # 若提供了 node_id，把它拼到 query string 上，便于网关精准识别该账号节点是否在线
+    if node_id:
+        sep = "&" if "?" in ws_url else "?"
+        ws_url = f"{ws_url}{sep}node={quote(str(node_id))}"
     # 动态把桥接脚本里面原来写死的 WS_URL 给替换掉，并返回修改后的代码块。
     code = code.replace("__WS_URL__", ws_url)
     return code
@@ -495,7 +499,8 @@ class AccountManager:
         return False
 
     async def _wait_for_ws_gateway(self, baseline_count: int, expected_increase: int = 1, timeout: int = 45) -> bool:
-        """等待本地 WS 网关侧检测到新的 bridge 节点接入"""
+        """[已废弃] 旧逻辑：根据总数差判定 WS 网关是否新增节点。
+        并发多账号场景下会互相误判，已被 _wait_for_node(uid) 取代，仅保留兼容。"""
         try:
             from mimo2api.gateway_state import state as gw_state
         except Exception as e:
@@ -507,23 +512,43 @@ class AccountManager:
             await asyncio.sleep(0.5)
         return len(gw_state.active_clients) >= baseline_count + expected_increase
 
+    async def _wait_for_node(self, node_id: str, timeout: int = 90) -> bool:
+        """等待网关侧检测到本账号的 bridge 节点上线（通过 ?node=<uid> 自报身份）"""
+        try:
+            from mimo2api.gateway_state import state as gw_state
+        except Exception as e:
+            self.logger.warning(f"无法导入 gateway_state，跳过节点连通检测: {e}")
+            return True
+        key = str(node_id)
+        for _ in range(timeout * 2):
+            if key in gw_state.node_to_ws:
+                return True
+            await asyncio.sleep(0.5)
+        return key in gw_state.node_to_ws
+
+    def _node_online(self, node_id: str) -> bool:
+        try:
+            from mimo2api.gateway_state import state as gw_state
+        except Exception:
+            return False
+        return str(node_id) in gw_state.node_to_ws
+
     async def inject_bridge_with_retry(
         self,
         client: NativeClawClient,
         inject_prompt: str,
         max_retries: int = 3,
-        ws_wait_timeout: int = 45,
+        ws_wait_timeout: int = 90,
         label: str = "桥接脚本",
     ) -> bool:
-        """注入反代/桥接脚本，遇拒绝或 WS 未通时发送 /reset 后重试"""
-        try:
-            from mimo2api.gateway_state import state as gw_state
-            baseline = len(gw_state.active_clients)
-        except Exception:
-            baseline = 0
+        """注入反代/桥接脚本。判定顺序：先看自己账号的节点是否上线，没上线再考虑是否拒绝。"""
+        # 注入前先看本账号 bridge 是否已经在线（例如上轮残留进程仍存活）
+        if self._node_online(self.uid):
+            self.logger.info(f"✅ [{label}] 检测到账号 {self.uid} 的 bridge 节点已在线，跳过注入。")
+            return True
 
         for attempt in range(1, max_retries + 1):
-            self.logger.info(f"[{label}] 第 {attempt}/{max_retries} 次注入...")
+            self.logger.info(f"[{label}] 第 {attempt}/{max_retries} 次注入 (账号节点 {self.uid})...")
             try:
                 reply = await client.send_message(inject_prompt, timeout=180)
             except Exception as e:
@@ -531,17 +556,21 @@ class AccountManager:
                 reply = None
             self.logger.info(f"[{label} 注入反馈 attempt {attempt}]: {reply}")
 
-            refused = _looks_like_refusal(reply)
-            ws_ok = await self._wait_for_ws_gateway(baseline, expected_increase=1, timeout=ws_wait_timeout)
-
-            if ws_ok and not refused:
-                self.logger.info(f"✅ [{label}] 注入成功且 WS 网关已检测到新节点 (attempt {attempt})")
+            # 关键：以 WS 真实上线为唯一成功判据，AI 回复内容只是辅助诊断
+            ws_ok = await self._wait_for_node(self.uid, timeout=ws_wait_timeout)
+            if ws_ok:
+                self.logger.info(
+                    f"✅ [{label}] 注入成功，网关已确认账号 {self.uid} 节点接入 (attempt {attempt})"
+                )
                 return True
 
+            refused = _looks_like_refusal(reply)
             if refused:
-                self.logger.warning(f"⚠️ [{label}] 检测到拒绝/负面执行回复 (attempt {attempt})")
-            if not ws_ok:
-                self.logger.warning(f"⚠️ [{label}] WS 网关未检测到新节点接入 (attempt {attempt})")
+                self.logger.warning(f"⚠️ [{label}] WS 未通且回复疑似拒绝执行 (attempt {attempt})")
+            else:
+                self.logger.warning(
+                    f"⚠️ [{label}] WS 未通但回复未识别为拒绝——可能 AI 编造了执行结果 (attempt {attempt})"
+                )
 
             if attempt < max_retries:
                 try:
@@ -552,7 +581,7 @@ class AccountManager:
                     self.logger.warning(f"[{label}] /reset 发送异常: {e}")
                 await asyncio.sleep(5)
 
-        self.logger.error(f"❌ [{label}] 连续 {max_retries} 次注入仍未让 WS 网关上线")
+        self.logger.error(f"❌ [{label}] 连续 {max_retries} 次注入仍未让账号 {self.uid} 的节点上线")
         return False
 
     async def try_shutdown_instance(self, client: NativeClawClient, status: str) -> None:
@@ -592,7 +621,7 @@ class AccountManager:
                 if st == "AVAILABLE" and remain_sec > 180:
                     self.logger.info(f"发现可用宿主环境！尝试直接免重启挂载接入...")
                     if await self.connect_with_retry(client, max_retries=3, delay=5, create=False):
-                        bridge_code = await get_bridge_code()
+                        bridge_code = await get_bridge_code(self.uid)
                         inject_prompt = (
                             "好，请检查当前环境是否有 websockets 和 httpx 依赖（如果没有请马上安装）。\n"
                             "然后，请先将当前主机上正在运行（如果有的话）的所有资源桥接脚本进程杀掉（例如寻找并 kill 掉包含 ws:// 连结的后台 python 进程），"
@@ -605,7 +634,7 @@ class AccountManager:
                             client,
                             inject_prompt,
                             max_retries=3,
-                            ws_wait_timeout=45,
+                            ws_wait_timeout=90,
                             label="桥接脚本(复用容器)",
                         )
                         await client.close()
@@ -693,7 +722,7 @@ class AccountManager:
 
                 # 5. 注入核心桥接通信脚本（带 /reset 重试 + WS 网关连通检测）
                 self.logger.info("正解析并注入 mimo2api bridge.py ...")
-                bridge_code = await get_bridge_code()
+                bridge_code = await get_bridge_code(self.uid)
                 inject_prompt = (
                     "好，帮我安装websockets和httpx。\n"
                     "然后请用 nohup 后台静默运行以下 Python 资源桥接代码（请务必在后台运行，不要阻塞我们的对话！）：\n"
@@ -706,7 +735,7 @@ class AccountManager:
                     client,
                     inject_prompt,
                     max_retries=3,
-                    ws_wait_timeout=45,
+                    ws_wait_timeout=90,
                     label="桥接脚本(新建容器)",
                 )
                 if not inject_ok:

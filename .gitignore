@@ -6,7 +6,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
-.claude
 .venv/
 venv/
 
@@ -30,3 +29,9 @@ gateway_metrics.db
 gateway_snapshot.json
 mimo2api.lock
 users/
+CLAUDE.md
+.agents/
+.claude/
+skills-lock.json
+.superpowers/
+docs/

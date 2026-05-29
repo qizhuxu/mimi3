@@ -400,10 +400,21 @@ async def api_delete_model_mapping(model_name: str):
 async def ws_tunnel(ws: WebSocket):
     await ws.accept()
     client_addr = f"{ws.client.host}:{ws.client.port}" if ws.client else "Unknown"
+    node_id = ws.query_params.get("node") or ws.query_params.get("node_id")
     state.active_clients.append(ws)
     state.client_cooldowns.pop(id(ws), None)
-    logger.info(f"✅ 内网节点已接入: {client_addr}。当前在线节点数: {len(state.active_clients)}")
-    
+    if node_id:
+        # 若同一账号原本已有连接，先解除旧映射避免被覆盖
+        old_ws = state.node_to_ws.get(node_id)
+        if old_ws is not None and old_ws is not ws:
+            state.ws_id_to_node.pop(id(old_ws), None)
+        state.node_to_ws[node_id] = ws
+        state.ws_id_to_node[id(ws)] = node_id
+    logger.info(
+        f"✅ 内网节点已接入: {client_addr} node={node_id or '<未自报>'}。"
+        f"当前在线节点数: {len(state.active_clients)}"
+    )
+
     try:
         while True:
             msg = await ws.receive_text()
@@ -420,6 +431,9 @@ async def ws_tunnel(ws: WebSocket):
         if ws in state.active_clients:
             state.active_clients.remove(ws)
         state.client_cooldowns.pop(id(ws), None)
+        nid = state.ws_id_to_node.pop(id(ws), None)
+        if nid and state.node_to_ws.get(nid) is ws:
+            del state.node_to_ws[nid]
         
         # 清理该节点的所有孤儿队列
         orphan_ids = state.ws_to_req_ids.pop(id(ws), set())

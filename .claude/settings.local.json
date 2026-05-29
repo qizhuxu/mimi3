@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -m py_compile mimo2api/manager.py)",
-      "Bash(git -C E:/AI/mimi3 remote -v)"
-    ]
-  }
-}
