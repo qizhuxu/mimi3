@@ -20,9 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py docker-entrypoint.sh ./
 COPY model_mapping.json ./model_mapping.default.json
 COPY mimo2api ./mimo2api
-COPY users/.gitkeep ./users/.gitkeep
 
-RUN mkdir -p /app/logs /app/data \
+RUN mkdir -p /app/users /app/logs /app/data \
     && ln -sf /app/data/model_mapping.json /app/model_mapping.json \
     && chmod +x /app/docker-entrypoint.sh \
     && chown -R app:app /app
