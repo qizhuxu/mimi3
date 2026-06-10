@@ -19,6 +19,9 @@ METRICS_SNAPSHOT_INTERVAL = 60  # 每 60 秒保存一次
 
 
 def node_label(ws: WebSocket) -> str:
+    node_id = state.ws_id_to_node.get(id(ws))
+    if node_id:
+        return str(node_id)
     return ws.client.host if ws.client else "Unknown"
 
 
@@ -554,6 +557,8 @@ def build_gateway_stats(background_tasks_count: int) -> dict[str, Any]:
             "node": node_key,
             "client_id": id(client),
             "available": is_available,
+            "connected_at": state.node_connected_at.get(node_key),
+            "last_seen_at": state.node_last_seen_at.get(node_key),
             "cooldown_until": int(cooldown_until) if cooldown_until > now else 0,
             "cooldown_remaining_seconds": max(0, int(cooldown_until - now)),
             "pending_requests": len(tracked_req_ids),

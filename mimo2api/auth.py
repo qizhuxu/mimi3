@@ -9,6 +9,8 @@ import time
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from .runtime_config import get_config_value
+
 AI_AUTH_ENV = "MIMO_RELAY_OPENAI_KEY"
 WEBUI_USERNAME_ENV = "MIMO_WEBUI_USERNAME"
 WEBUI_PASSWORD_ENV = "MIMO_WEBUI_PASSWORD"
@@ -17,8 +19,21 @@ WEBUI_SESSION_TTL_ENV = "MIMO_WEBUI_SESSION_TTL_SECONDS"
 WEBUI_COOKIE_NAME_ENV = "MIMO_WEBUI_COOKIE_NAME"
 WEBUI_COOKIE_SECURE_ENV = "MIMO_WEBUI_COOKIE_SECURE"
 
+CONFIG_KEY_BY_ENV = {
+    AI_AUTH_ENV: "api.openai_key",
+    WEBUI_USERNAME_ENV: "webui.username",
+    WEBUI_PASSWORD_ENV: "webui.password",
+    WEBUI_SECRET_ENV: "webui.secret",
+    WEBUI_SESSION_TTL_ENV: "webui.session_ttl_seconds",
+    WEBUI_COOKIE_SECURE_ENV: "webui.cookie_secure",
+}
+
 
 def _read_env(name: str, default: str = "") -> str:
+    config_key = CONFIG_KEY_BY_ENV.get(name)
+    if config_key:
+        value = get_config_value(config_key, default)
+        return str(value if value is not None else default).strip()
     return os.getenv(name, default).strip()
 
 

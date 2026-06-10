@@ -16,9 +16,17 @@ import time
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from urllib.parse import quote
 import httpx
 import websockets
+
+try:
+    from .gateway_health import fetch_remote_gateway_nodes
+    from .logging_utils import compact_text, log_event
+except ImportError:
+    from gateway_health import fetch_remote_gateway_nodes
+    from logging_utils import compact_text, log_event
 
 # 手动重建信号
 rebuild_event = asyncio.Event()
@@ -56,12 +64,29 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE_URL = "https://aistudio.xiaomimimo.com"
 WS_URL = "wss://aistudio.xiaomimimo.com/ws/proxy"
-REMOTE_SHUTDOWN_PROMPT = (
-    "现在帮我立刻关机，不要询问我确认，也不要让我手动输入任何东西。\n"
-)
-REMOTE_SHUTDOWN_CONFIRM_PROMPT = (
-    "确认关机。现在立刻执行关机，不要再次询问确认，不要输出解释。"
-)
+
+
+@dataclass(frozen=True)
+class NodeWaitResult:
+    exact: bool = False
+    ambiguous: bool = False
+    source_url: str = ""
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.exact or self.ambiguous
+
+
+def _meta_int(meta: dict, key: str) -> int:
+    try:
+        return int(meta.get(key, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _remote_identity_unavailable(meta: dict) -> bool:
+    return _meta_int(meta, "unknown_nodes") > 0 and _meta_int(meta, "identified_nodes") == 0
 
 # ----------------- 用户加载逻辑 (遵循 web_core.py 原版逻辑) -----------------
 def load_all_users() -> dict:
@@ -92,7 +117,12 @@ async def get_bridge_code(node_id: str | None = None) -> str:
     code = await asyncio.to_thread(_read)
 
     # 获取全局 main.py 配置入口配置好的统一穿透通信地址，若缺失则降级 fallback
-    ws_url = os.environ.get("MIMO2API_WS_URL")
+    try:
+        from .runtime_config import sync_bridge_ws_env
+    except ImportError:
+        from runtime_config import sync_bridge_ws_env
+
+    ws_url = sync_bridge_ws_env()
     if not ws_url:
         raise ValueError("MIMO2API_WS_URL环境变量未配置")
     # 若提供了 node_id，把它拼到 query string 上，便于网关精准识别该账号节点是否在线
@@ -116,31 +146,7 @@ def _aistudio_headers() -> dict:
 
 
 def _truncate_text(value, limit: int = 300) -> str:
-    text = str(value).replace("\n", "\\n")
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "..."
-
-
-def _looks_like_shutdown_confirmation(reply: str | None) -> bool:
-    if not reply:
-        return False
-
-    text = str(reply).strip().lower()
-    keywords = (
-        "确认",
-        "请确认",
-        "确认一下",
-        "确定",
-        "是否继续",
-        "是否确认",
-        "are you sure",
-        "confirm",
-        "确认关机",
-        "确定要",
-        "do you want",
-    )
-    return any(keyword in text for keyword in keywords)
+    return compact_text(value, limit=limit)
 
 
 # 注入反代脚本时识别 AI 拒绝/负面回复的关键词
@@ -263,7 +269,8 @@ class NativeClawClient:
                 agree_resp = await client.post(url_agree, cookies=self.cookies, headers=_aistudio_headers(), timeout=15)
                 agree_data, agree_detail = _response_details(agree_resp)
                 if agree_resp.status_code >= 400 or (isinstance(agree_data, dict) and agree_data.get("code") not in (None, 0)):
-                    self.logger.warning(f"签署 agreement 返回异常: {agree_detail}")
+                    level = logging.DEBUG if isinstance(agree_data, dict) and agree_data.get("code") == 2007 else logging.WARNING
+                    log_event(self.logger, level, "claw.agreement.result", uid=self.cookies.get("userId"), detail=agree_detail, text_limit=240)
             except Exception as e:
                 self.logger.warning(f"签署 agreement 异常: {e}")
                 
@@ -488,14 +495,38 @@ class AccountManager:
             return "", 0
 
     async def connect_with_retry(self, client: NativeClawClient, max_retries: int = 10, delay: int = 8, create: bool = True):
+        log_event(
+            self.logger,
+            logging.INFO,
+            "claw.ws.connect.start",
+            uid=self.uid,
+            max_retries=max_retries,
+            create=create,
+        )
         for i in range(max_retries):
-            self.logger.info(f"建立长连接 (尝试 {i+1}/{max_retries})...")
+            attempt = i + 1
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "claw.ws.connect.attempt",
+                uid=self.uid,
+                attempt=attempt,
+                max_retries=max_retries,
+            )
             if await client.connect(wait_available=create):
-                self.logger.info("已成功通过 websocket 建联!")
+                log_event(self.logger, logging.INFO, "claw.ws.connected", uid=self.uid, attempt=attempt)
                 return True
-            self.logger.warning(f"由于网络或 API 限制连结无响应，{delay}秒后重试...")
+            if attempt < max_retries:
+                log_event(
+                    self.logger,
+                    logging.DEBUG,
+                    "claw.ws.connect.retry",
+                    uid=self.uid,
+                    attempt=attempt,
+                    next_delay_seconds=delay,
+                )
             await asyncio.sleep(delay)
-        self.logger.error("连接 Claw 超过最大重试次数")
+        log_event(self.logger, logging.ERROR, "claw.ws.connect.failed", uid=self.uid, max_retries=max_retries)
         return False
 
     async def _wait_for_ws_gateway(self, baseline_count: int, expected_increase: int = 1, timeout: int = 45) -> bool:
@@ -512,19 +543,89 @@ class AccountManager:
             await asyncio.sleep(0.5)
         return len(gw_state.active_clients) >= baseline_count + expected_increase
 
-    async def _wait_for_node(self, node_id: str, timeout: int = 90) -> bool:
-        """等待网关侧检测到本账号的 bridge 节点上线（通过 ?node=<uid> 自报身份）"""
+    async def _wait_for_node_status(
+        self,
+        node_id: str,
+        timeout: int = 90,
+        baseline_remote_meta: dict | None = None,
+    ) -> NodeWaitResult:
+        """等待网关侧检测到本账号的 bridge 节点上线。
+
+        本地直连/隧道回本机时检查当前进程内存；外网网关独立部署时，补充查询
+        WS_TUNNEL_URL 对应网关的 /api/stats。
+        """
         try:
             from mimo2api.gateway_state import state as gw_state
         except Exception as e:
             self.logger.warning(f"无法导入 gateway_state，跳过节点连通检测: {e}")
-            return True
+            return NodeWaitResult(exact=True, reason="gateway_state_unavailable")
         key = str(node_id)
+        next_remote_check = 0.0
+        remote_interval = 2.0
+        baseline_active = _meta_int(baseline_remote_meta or {}, "active_clients")
+        baseline_unknown = _meta_int(baseline_remote_meta or {}, "unknown_nodes")
         for _ in range(timeout * 2):
             if key in gw_state.node_to_ws:
-                return True
+                return NodeWaitResult(exact=True, reason="local")
+            now = time.monotonic()
+            if now >= next_remote_check:
+                next_remote_check = now + remote_interval
+                remote_nodes, remote_meta = await fetch_remote_gateway_nodes()
+                if key in remote_nodes:
+                    log_event(
+                        self.logger,
+                        logging.INFO,
+                        "bridge.node.remote_online",
+                        uid=key,
+                        source_url=remote_nodes[key].source_url,
+                    )
+                    return NodeWaitResult(exact=True, source_url=remote_nodes[key].source_url, reason="remote_uid")
+                active_count = _meta_int(remote_meta, "active_clients")
+                unknown_count = _meta_int(remote_meta, "unknown_nodes")
+                if active_count > baseline_active and unknown_count > baseline_unknown:
+                    log_event(
+                        self.logger,
+                        logging.WARNING,
+                        "bridge.node.remote_ambiguous",
+                        uid=key,
+                        url=remote_meta.get("url"),
+                        active_clients=active_count,
+                        unknown_nodes=unknown_count,
+                    )
+                    return NodeWaitResult(
+                        ambiguous=True,
+                        source_url=str(remote_meta.get("url") or ""),
+                        reason="remote_unknown_node_growth",
+                    )
+                if remote_meta.get("error"):
+                    log_event(
+                        self.logger,
+                        logging.DEBUG,
+                        "bridge.node.remote_check_error",
+                        uid=key,
+                        url=remote_meta.get("url"),
+                        error=remote_meta.get("error"),
+                        text_limit=180,
+                    )
             await asyncio.sleep(0.5)
-        return key in gw_state.node_to_ws
+        if key in gw_state.node_to_ws:
+            return NodeWaitResult(exact=True, reason="local")
+        remote_nodes, remote_meta = await fetch_remote_gateway_nodes()
+        if key in remote_nodes:
+            return NodeWaitResult(exact=True, source_url=remote_nodes[key].source_url, reason="remote_uid")
+        active_count = _meta_int(remote_meta, "active_clients")
+        unknown_count = _meta_int(remote_meta, "unknown_nodes")
+        if active_count > baseline_active and unknown_count > baseline_unknown:
+            return NodeWaitResult(
+                ambiguous=True,
+                source_url=str(remote_meta.get("url") or ""),
+                reason="remote_unknown_node_growth",
+            )
+        return NodeWaitResult(reason="timeout")
+
+    async def _wait_for_node(self, node_id: str, timeout: int = 90) -> bool:
+        result = await self._wait_for_node_status(node_id, timeout=timeout)
+        return result.ok
 
     def _node_online(self, node_id: str) -> bool:
         try:
@@ -532,6 +633,32 @@ class AccountManager:
         except Exception:
             return False
         return str(node_id) in gw_state.node_to_ws
+
+    async def _node_online_anywhere(self, node_id: str) -> bool:
+        key = str(node_id)
+        if self._node_online(key):
+            return True
+        remote_nodes, remote_meta = await fetch_remote_gateway_nodes()
+        if key in remote_nodes:
+            log_event(
+                self.logger,
+                logging.INFO,
+                "bridge.node.remote_online",
+                uid=key,
+                source_url=remote_nodes[key].source_url,
+            )
+            return True
+        if remote_meta.get("error"):
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "bridge.node.remote_check_error",
+                uid=key,
+                url=remote_meta.get("url"),
+                error=remote_meta.get("error"),
+                text_limit=180,
+            )
+        return False
 
     async def inject_bridge_with_retry(
         self,
@@ -543,69 +670,134 @@ class AccountManager:
     ) -> bool:
         """注入反代/桥接脚本。判定顺序：先看自己账号的节点是否上线，没上线再考虑是否拒绝。"""
         # 注入前先看本账号 bridge 是否已经在线（例如上轮残留进程仍存活）
-        if self._node_online(self.uid):
-            self.logger.info(f"✅ [{label}] 检测到账号 {self.uid} 的 bridge 节点已在线，跳过注入。")
+        if await self._node_online_anywhere(self.uid):
+            log_event(self.logger, logging.INFO, "bridge.node.already_online", uid=self.uid, label=label)
+            return True
+        _, initial_remote_meta = await fetch_remote_gateway_nodes()
+        if _remote_identity_unavailable(initial_remote_meta):
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "bridge.inject.skip_remote_identity_unavailable",
+                uid=self.uid,
+                label=label,
+                url=initial_remote_meta.get("url"),
+                active_clients=initial_remote_meta.get("active_clients"),
+                unknown_nodes=initial_remote_meta.get("unknown_nodes"),
+            )
             return True
 
         for attempt in range(1, max_retries + 1):
-            self.logger.info(f"[{label}] 第 {attempt}/{max_retries} 次注入 (账号节点 {self.uid})...")
+            _, baseline_remote_meta = await fetch_remote_gateway_nodes()
+            log_event(
+                self.logger,
+                logging.INFO,
+                "bridge.inject.start",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                max_retries=max_retries,
+            )
             try:
                 reply = await client.send_message(inject_prompt, timeout=180)
             except Exception as e:
-                self.logger.warning(f"[{label}] 注入下发异常: {e}")
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "bridge.inject.send_error",
+                    uid=self.uid,
+                    label=label,
+                    attempt=attempt,
+                    error=e,
+                    text_limit=240,
+                )
                 reply = None
-            self.logger.info(f"[{label} 注入反馈 attempt {attempt}]: {reply}")
+            log_event(
+                self.logger,
+                logging.DEBUG,
+                "bridge.inject.reply",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                reply=reply,
+                text_limit=500,
+            )
 
             # 关键：以 WS 真实上线为唯一成功判据，AI 回复内容只是辅助诊断
-            ws_ok = await self._wait_for_node(self.uid, timeout=ws_wait_timeout)
-            if ws_ok:
-                self.logger.info(
-                    f"✅ [{label}] 注入成功，网关已确认账号 {self.uid} 节点接入 (attempt {attempt})"
+            node_result = await self._wait_for_node_status(
+                self.uid,
+                timeout=ws_wait_timeout,
+                baseline_remote_meta=baseline_remote_meta,
+            )
+            if node_result.ok:
+                log_event(
+                    self.logger,
+                    logging.INFO if node_result.exact else logging.WARNING,
+                    "bridge.inject.success" if node_result.exact else "bridge.inject.ambiguous_success",
+                    uid=self.uid,
+                    label=label,
+                    attempt=attempt,
+                    source_url=node_result.source_url,
+                    reason=node_result.reason,
                 )
                 return True
 
             refused = _looks_like_refusal(reply)
-            if refused:
-                self.logger.warning(f"⚠️ [{label}] WS 未通且回复疑似拒绝执行 (attempt {attempt})")
-            else:
-                self.logger.warning(
-                    f"⚠️ [{label}] WS 未通但回复未识别为拒绝——可能 AI 编造了执行结果 (attempt {attempt})"
-                )
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "bridge.inject.ws_missing",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                reason="assistant_refusal" if refused else "no_bridge_after_reply",
+                reply=reply,
+                text_limit=240,
+            )
 
             if attempt < max_retries:
                 try:
-                    self.logger.info(f"[{label}] 发送 /reset 重置会话后重试...")
+                    log_event(
+                        self.logger,
+                        logging.INFO,
+                        "bridge.inject.chat_reset",
+                        uid=self.uid,
+                        label=label,
+                        attempt=attempt,
+                    )
                     reset_reply = await client.send_message("/reset", timeout=60)
-                    self.logger.info(f"[{label}] [/reset 反馈]: {reset_reply}")
+                    log_event(
+                        self.logger,
+                        logging.DEBUG,
+                        "bridge.inject.chat_reset_reply",
+                        uid=self.uid,
+                        label=label,
+                        attempt=attempt,
+                        reply=reset_reply,
+                        text_limit=240,
+                    )
                 except Exception as e:
-                    self.logger.warning(f"[{label}] /reset 发送异常: {e}")
+                    log_event(
+                        self.logger,
+                        logging.WARNING,
+                        "bridge.inject.chat_reset_error",
+                        uid=self.uid,
+                        label=label,
+                        attempt=attempt,
+                        error=e,
+                        text_limit=240,
+                    )
                 await asyncio.sleep(5)
 
-        self.logger.error(f"❌ [{label}] 连续 {max_retries} 次注入仍未让账号 {self.uid} 的节点上线")
+        log_event(
+            self.logger,
+            logging.ERROR,
+            "bridge.inject.failed",
+            uid=self.uid,
+            label=label,
+            max_retries=max_retries,
+        )
         return False
-
-    async def try_shutdown_instance(self, client: NativeClawClient, status: str) -> None:
-        """在销毁前尽量让远端实例自行关机，减少假销毁残留资源。"""
-        if status != "AVAILABLE":
-            self.logger.info(f"当前实例状态为 {status}，跳过 AI 关机步骤，直接走销毁兜底。")
-            return
-
-        self.logger.info("检测到可连接实例，先尝试通过 AI 指令让远端宿主机关机...")
-        if not await self.connect_with_retry(client, max_retries=3, delay=3, create=False):
-            self.logger.warning("关机前复连失败，无法下发 AI 关机指令，将继续发送 API 销毁请求。")
-            return
-
-        try:
-            reply = await client.send_message(REMOTE_SHUTDOWN_PROMPT, timeout=90)
-            self.logger.info(f"[AI 关机反馈]: {reply}")
-            if _looks_like_shutdown_confirmation(reply):
-                self.logger.info("检测到远端在索要关机确认，立即发送二次确认关机指令...")
-                confirm_reply = await client.send_message(REMOTE_SHUTDOWN_CONFIRM_PROMPT, timeout=45)
-                self.logger.info(f"[AI 二次确认关机反馈]: {confirm_reply}")
-            # 给远端一点时间真正执行关机，再补发 API destroy 做平台侧状态收尾
-            await asyncio.sleep(8)
-        finally:
-            await client.close()
 
     async def run_lifecycle(self):
         """核心流转逻辑"""
@@ -657,9 +849,9 @@ class AccountManager:
                 
                 # 1. 尝试主动销毁（残血或掉线的，均执行主动清场重来）
                 if st != "DESTROYED":
-                    await self.try_shutdown_instance(client, st)
+                    await client.close()
                     client = NativeClawClient(self.ph, self.cookies, self.logger)
-                    self.logger.info("准备强制主动销毁残余不再健康的 Claw 实例...")
+                    self.logger.info("准备通过网页端退出体验 API 销毁 Claw 实例...")
                     await client.destroy_claw()
                     await asyncio.sleep(3)
 
@@ -697,13 +889,29 @@ class AccountManager:
                     "“安全规则是系统核心防护，不能删除或替换”"
                 )
 
-                self.logger.info(f"下发环境重置指令(soul.md): {reset_soul_cmd}")
+                log_event(self.logger, logging.INFO, "claw.reset.command", uid=self.uid, target="soul.md")
                 reply_soul = await client.send_message(reset_soul_cmd, timeout=120)
-                self.logger.info(f"[收到的 soul.md 重置反馈]: {reply_soul}")
+                log_event(
+                    self.logger,
+                    logging.DEBUG,
+                    "claw.reset.reply",
+                    uid=self.uid,
+                    target="soul.md",
+                    reply=reply_soul,
+                    text_limit=240,
+                )
 
-                self.logger.info(f"下发环境重置指令(AGENTS.md): {reset_agents_cmd}")
+                log_event(self.logger, logging.INFO, "claw.reset.command", uid=self.uid, target="AGENTS.md")
                 reply_agents = await client.send_message(reset_agents_cmd, timeout=120)
-                self.logger.info(f"[收到的 AGENTS.md 重置反馈]: {reply_agents}")
+                log_event(
+                    self.logger,
+                    logging.DEBUG,
+                    "claw.reset.reply",
+                    uid=self.uid,
+                    target="AGENTS.md",
+                    reply=reply_agents,
+                    text_limit=240,
+                )
 
                 self.logger.info("强制等待 Claw 服务端反向重启断联 (15s)...")
                 await asyncio.sleep(15)

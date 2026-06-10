@@ -28,6 +28,10 @@ MODEL_MAPPING_FILE = Path(__file__).parent.parent / "model_mapping.json"
 
 # 引入 Manager 长驻协程任务
 from .manager import start_manager_tasks, trigger_rebuild
+from .lifecycle_monitor import build_lifecycle_snapshot, lifecycle_monitor_worker, refresh_lifecycle_once
+from .logging_utils import apply_library_log_levels, parse_bool, resolve_log_level
+from .runtime_config import get_config_metadata, reload_runtime_config, sync_bridge_ws_env, update_runtime_config
+from .tunnel_supervisor import tunnel_supervisor
 
 # Responses API 转换器
 from .responses_converter import convert_request as responses_convert_request
@@ -63,13 +67,17 @@ from .metrics_store import (
     record_request_started,
 )
 
-# 配置基础日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# 配置基础日志；main.py 会在进程入口重新安装更完整的 handler。
+_, _default_log_level = resolve_log_level(os.getenv("MIMO_LOG_LEVEL"), "INFO")
+_access_log_enabled = parse_bool(os.getenv("MIMO_ACCESS_LOG"), default=False)
+logging.basicConfig(level=_default_log_level, format="%(asctime)s - %(levelname)s - %(message)s")
+apply_library_log_levels(access_log_enabled=_access_log_enabled)
 logger = logging.getLogger(__name__)
 
 manager_bg_task = None
 metrics_persist_task = None
 sweeper_bg_task = None
+lifecycle_bg_task = None
 single_process_lock_file = None
 STALE_QUEUE_TTL = 300
 SHUTDOWN_TASK_TIMEOUT = float(os.getenv("MIMO_SHUTDOWN_TASK_TIMEOUT", "5"))
@@ -129,7 +137,7 @@ async def cancel_and_wait_tasks(tasks: list[asyncio.Task | None], *, label: str)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global manager_bg_task, metrics_persist_task, sweeper_bg_task
+    global manager_bg_task, metrics_persist_task, sweeper_bg_task, lifecycle_bg_task
     logger.info("🚀 正在拉起挂后台的 Claw 账号守护线程...")
     acquire_single_process_lock()
 
@@ -138,23 +146,28 @@ async def lifespan(app: FastAPI):
     if fixed:
         logger.info(f"🔧 重新分类了 {fixed} 条历史状态记录")
         
+    await tunnel_supervisor.start()
+    sync_bridge_ws_env(tunnel_supervisor.snapshot().get("ws_url"))
     manager_bg_task = asyncio.create_task(start_manager_tasks(), name="mimo-manager")
     metrics_persist_task = asyncio.create_task(metrics_history_worker(), name="mimo-metrics")
     sweeper_bg_task = asyncio.create_task(sweep_stale_queues(), name="mimo-sweeper") # 启动巡检死神
+    lifecycle_bg_task = asyncio.create_task(lifecycle_monitor_worker(), name="mimo-lifecycle")
     
     yield
 
     try:
         await close_active_clients()
         await cancel_and_wait_tasks(
-            [manager_bg_task, metrics_persist_task, sweeper_bg_task],
+            [manager_bg_task, metrics_persist_task, sweeper_bg_task, lifecycle_bg_task],
             label="核心后台任务",
         )
         await cancel_and_wait_tasks(list(_background_tasks), label="转发清理任务")
+        await tunnel_supervisor.stop()
     finally:
         manager_bg_task = None
         metrics_persist_task = None
         sweeper_bg_task = None
+        lifecycle_bg_task = None
         release_single_process_lock()
 
 app = FastAPI(lifespan=lifespan)
@@ -164,7 +177,9 @@ from .gateway_state import state
 
 # 注入前面拆分出的 WebUI 独立路由
 from .ui_router import router as ui_router
+from .web_chat_proxy import router as web_chat_router
 app.include_router(ui_router)
+app.include_router(web_chat_router)
 
 RETRYABLE_STATUS_CODES = {401, 403, 429}
 NODE_RESPONSE_TIMEOUT = 30
@@ -331,6 +346,66 @@ async def api_rebuild():
 async def api_stats():
     return JSONResponse(content=build_gateway_stats(len(_background_tasks)))
 
+@app.get("/api/config")
+async def api_config_get():
+    return JSONResponse(content=get_config_metadata())
+
+@app.put("/api/config")
+async def api_config_put(request: Request):
+    try:
+        body = await request.json()
+        updates = body.get("updates", body) if isinstance(body, dict) else {}
+        result = update_runtime_config(updates)
+        await tunnel_supervisor.restart()
+        return JSONResponse(content=result)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"detail": f"保存配置失败: {exc}"}, status_code=500)
+
+@app.post("/api/config/reload")
+async def api_config_reload():
+    reload_runtime_config()
+    await tunnel_supervisor.restart()
+    return JSONResponse(content={"ok": True, "config": get_config_metadata(), "tunnel": tunnel_supervisor.snapshot()})
+
+@app.get("/api/tunnel/status")
+async def api_tunnel_status():
+    return JSONResponse(content=tunnel_supervisor.snapshot())
+
+@app.put("/api/tunnel/config")
+async def api_tunnel_config(request: Request):
+    try:
+        body = await request.json()
+        updates = body.get("updates", body) if isinstance(body, dict) else {}
+        result = await tunnel_supervisor.configure(updates)
+        return JSONResponse(content={"ok": True, "config": result.get("config"), "tunnel": tunnel_supervisor.snapshot()})
+    except Exception as exc:
+        return JSONResponse({"detail": f"保存隧道配置失败: {exc}"}, status_code=500)
+
+@app.post("/api/tunnel/restart")
+async def api_tunnel_restart():
+    await tunnel_supervisor.restart()
+    return JSONResponse(content={"ok": True, "tunnel": tunnel_supervisor.snapshot()})
+
+@app.post("/api/tunnel/stop")
+async def api_tunnel_stop():
+    await tunnel_supervisor.stop()
+    return JSONResponse(content={"ok": True, "tunnel": tunnel_supervisor.snapshot()})
+
+@app.get("/api/lifecycle/status")
+async def api_lifecycle_status(refresh: bool = False):
+    if refresh or not state.account_lifecycle:
+        snapshot = await refresh_lifecycle_once()
+    else:
+        snapshot = build_lifecycle_snapshot()
+    return JSONResponse(content=snapshot)
+
+@app.post("/api/lifecycle/rebuild")
+async def api_lifecycle_rebuild():
+    trigger_rebuild()
+    return JSONResponse(content={"ok": True, "lifecycle_status": "rebuild_pending", "message": "全局重建信号已发送"})
+
 @app.get("/api/status/history")
 async def api_status_history(hours: int = 24):
     hours = max(1, min(hours, 24 * METRICS_RETENTION_DAYS))
@@ -396,20 +471,82 @@ async def api_delete_model_mapping(model_name: str):
         return JSONResponse({"ok": True, "deleted": model_name})
     return JSONResponse({"error": f"模型 {model_name} 不在映射中"}, status_code=404)
 
+def detach_ws_state(ws: WebSocket, *, error_body: str = "node connection replaced") -> int:
+    if ws in state.active_clients:
+        state.active_clients.remove(ws)
+    state.client_cooldowns.pop(id(ws), None)
+    old_node_id = state.ws_id_to_node.pop(id(ws), None)
+    if old_node_id and state.node_to_ws.get(old_node_id) is ws:
+        state.node_to_ws.pop(old_node_id, None)
+        state.node_connected_at.pop(old_node_id, None)
+
+    orphan_ids = state.ws_to_req_ids.pop(id(ws), set())
+    for orphan_id in orphan_ids:
+        q = state.pending_queues.pop(orphan_id, None)
+        state.req_id_to_ws_id.pop(orphan_id, None)
+        state.req_id_timestamps.pop(orphan_id, None)
+        if q is not None:
+            try:
+                q.put_nowait({"type": "error", "body": error_body})
+            except asyncio.QueueFull:
+                pass
+
+    if state.current_client_index >= len(state.active_clients):
+        state.current_client_index = 0
+    return len(orphan_ids)
+
+
+def normalize_node_id(value: Any) -> str:
+    return str(value or "").strip()
+
+
+async def bind_ws_node(ws: WebSocket, node_id: str, *, now: float | None = None, reason: str = "node identity") -> str:
+    normalized = normalize_node_id(node_id)
+    if not normalized:
+        return ""
+    current_time = time.time() if now is None else now
+
+    previous_node = state.ws_id_to_node.get(id(ws))
+    if previous_node and previous_node != normalized and state.node_to_ws.get(previous_node) is ws:
+        state.node_to_ws.pop(previous_node, None)
+        state.node_connected_at.pop(previous_node, None)
+
+    old_ws = state.node_to_ws.get(normalized)
+    if old_ws is not None and old_ws is not ws:
+        orphan_count = detach_ws_state(old_ws, error_body="node connection replaced by a newer bridge")
+        logger.warning(f"Duplicate node connection replaced: node={normalized}, reason={reason}, orphan_requests={orphan_count}")
+        try:
+            await old_ws.close(code=4000, reason="duplicate node connection")
+        except Exception:
+            pass
+
+    state.node_to_ws[normalized] = ws
+    state.ws_id_to_node[id(ws)] = normalized
+    state.node_connected_at.setdefault(normalized, current_time)
+    state.node_last_seen_at[normalized] = current_time
+    return normalized
+
+
+async def bind_ws_node_from_payload(ws: WebSocket, payload: dict[str, Any], *, now: float | None = None) -> str:
+    node_id = normalize_node_id(payload.get("node") or payload.get("node_id") or payload.get("uid"))
+    if not node_id:
+        return ""
+    msg_type = str(payload.get("type") or "")
+    reason = msg_type if msg_type in {"hello", "heartbeat"} else "payload"
+    return await bind_ws_node(ws, node_id, now=now, reason=reason)
+
+
 @app.websocket("/ws")
 async def ws_tunnel(ws: WebSocket):
     await ws.accept()
     client_addr = f"{ws.client.host}:{ws.client.port}" if ws.client else "Unknown"
-    node_id = ws.query_params.get("node") or ws.query_params.get("node_id")
+    raw_node_id = ws.query_params.get("node") or ws.query_params.get("node_id")
+    node_id = str(raw_node_id).strip() if raw_node_id else ""
+    now = time.time()
     state.active_clients.append(ws)
     state.client_cooldowns.pop(id(ws), None)
     if node_id:
-        # 若同一账号原本已有连接，先解除旧映射避免被覆盖
-        old_ws = state.node_to_ws.get(node_id)
-        if old_ws is not None and old_ws is not ws:
-            state.ws_id_to_node.pop(id(old_ws), None)
-        state.node_to_ws[node_id] = ws
-        state.ws_id_to_node[id(ws)] = node_id
+        await bind_ws_node(ws, node_id, now=now, reason="query")
     logger.info(
         f"✅ 内网节点已接入: {client_addr} node={node_id or '<未自报>'}。"
         f"当前在线节点数: {len(state.active_clients)}"
@@ -419,6 +556,12 @@ async def ws_tunnel(ws: WebSocket):
         while True:
             msg = await ws.receive_text()
             data = json.loads(msg)
+            payload_node_id = await bind_ws_node_from_payload(ws, data)
+            if payload_node_id:
+                node_id = payload_node_id
+            mapped_node_id = node_id or state.ws_id_to_node.get(id(ws), "")
+            if mapped_node_id:
+                state.node_last_seen_at[mapped_node_id] = time.time()
             req_id = data.get("req_id")
             if req_id and req_id in state.pending_queues:
                 touch_pending_request(req_id)
@@ -434,6 +577,7 @@ async def ws_tunnel(ws: WebSocket):
         nid = state.ws_id_to_node.pop(id(ws), None)
         if nid and state.node_to_ws.get(nid) is ws:
             del state.node_to_ws[nid]
+            state.node_connected_at.pop(nid, None)
         
         # 清理该节点的所有孤儿队列
         orphan_ids = state.ws_to_req_ids.pop(id(ws), set())
@@ -558,6 +702,10 @@ async def dispatch_to_node(*, method: str, path: str, body: str, log_label: str,
         if target_ws in state.active_clients:
             state.active_clients.remove(target_ws)
         state.client_cooldowns.pop(id(target_ws), None)
+        nid = state.ws_id_to_node.pop(id(target_ws), None)
+        if nid and state.node_to_ws.get(nid) is target_ws:
+            del state.node_to_ws[nid]
+            state.node_connected_at.pop(nid, None)
         return None
 
     try:
@@ -996,4 +1144,5 @@ if __name__ == "__main__":
         port=8000,
         ws_max_size=10**8,
         timeout_graceful_shutdown=int(SHUTDOWN_TASK_TIMEOUT),
+        access_log=_access_log_enabled,
     )

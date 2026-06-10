@@ -3,439 +3,979 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mimo2 控制面板</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <title>Mimo2 综合控制台</title>
     <style>
         :root {
-            --primary: #4F46E5;
-            --primary-hover: #4338CA;
-            --danger: #EF4444;
-            --danger-hover: #DC2626;
-            --bg-color: #F3F4F6;
-            --card-bg: rgba(255, 255, 255, 0.75);
-            --card-border: rgba(255, 255, 255, 0.4);
-            --text-main: #111827;
-            --text-muted: #6B7280;
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            --radius-md: 12px;
-            --radius-lg: 16px;
+            --bg: #f6f7f9;
+            --surface: #ffffff;
+            --surface-muted: #f1f3f5;
+            --border: #d8dee6;
+            --border-strong: #b8c1cc;
+            --text: #171a1f;
+            --muted: #687385;
+            --primary: #1f6feb;
+            --primary-dark: #1a56c2;
+            --danger: #d1242f;
+            --warning: #9a6700;
+            --success: #1a7f37;
+            --radius: 8px;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
         }
+
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #e0e7ff 0%, #f3f4f6 100%);
-            color: var(--text-main);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 40px 20px;
-            box-sizing: border-box;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            letter-spacing: 0;
         }
 
-        .container {
+        button, input, select, textarea {
+            font: inherit;
+        }
+
+        button {
+            border: 1px solid var(--border-strong);
+            background: var(--surface);
+            color: var(--text);
+            border-radius: 6px;
+            min-height: 34px;
+            padding: 7px 12px;
+            cursor: pointer;
+        }
+
+        button:hover { border-color: var(--primary); color: var(--primary); }
+        button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        button.primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); color: #fff; }
+        button.danger { color: var(--danger); border-color: #f0b8bd; }
+        button.danger:hover { background: #fff1f2; }
+        button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+        input, select, textarea {
             width: 100%;
-            max-width: 900px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            min-height: 34px;
+            padding: 7px 9px;
         }
 
-        .hidden {
-            display: none !important;
+        textarea {
+            min-height: 110px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
-        .auth-shell {
+        .hidden { display: none !important; }
+
+        .login-page {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .login-panel {
+            width: min(420px, 100%);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+        }
+
+        .login-panel h1 {
+            margin: 0 0 8px;
+            font-size: 24px;
+        }
+
+        .login-panel p {
+            margin: 0 0 20px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .app {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 236px minmax(0, 1fr);
+        }
+
+        .sidebar {
+            background: #20242c;
+            color: #fff;
+            padding: 18px 14px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .brand {
+            padding: 4px 8px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.12);
+            margin-bottom: 14px;
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .brand-subtitle {
+            margin-top: 4px;
+            color: rgba(255,255,255,0.68);
+            font-size: 12px;
+        }
+
+        .nav {
+            display: grid;
+            gap: 4px;
+        }
+
+        .nav button {
             width: 100%;
-            max-width: 460px;
+            text-align: left;
+            border: 0;
+            color: rgba(255,255,255,0.78);
+            background: transparent;
+            border-radius: 6px;
+            padding: 9px 10px;
         }
 
-        .header {
+        .nav button:hover,
+        .nav button.active {
+            color: #fff;
+            background: rgba(255,255,255,0.12);
+        }
+
+        .main {
+            min-width: 0;
+            padding: 20px;
+        }
+
+        .topbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
             gap: 12px;
+            margin-bottom: 16px;
         }
 
-        .header h1 {
+        .topbar h1 {
             margin: 0;
-            font-size: 28px;
-            font-weight: 600;
-            color: #1e1b4b;
+            font-size: 22px;
         }
 
-        .header-meta {
+        .top-actions {
             display: flex;
+            gap: 8px;
             align-items: center;
-            gap: 10px;
             flex-wrap: wrap;
             justify-content: flex-end;
         }
 
         .badge {
-            padding: 8px 12px;
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            padding: 3px 8px;
             border-radius: 999px;
             font-size: 12px;
-            font-weight: 600;
-            background: rgba(255, 255, 255, 0.7);
-            color: #3730A3;
-            border: 1px solid rgba(79, 70, 229, 0.15);
+            border: 1px solid var(--border);
+            background: var(--surface-muted);
+            color: var(--muted);
+            white-space: nowrap;
         }
 
-        .badge.warn {
-            color: #92400E;
-            border-color: rgba(245, 158, 11, 0.25);
-        }
+        .badge.success { color: var(--success); border-color: #b7dfc1; background: #eef8f0; }
+        .badge.warn { color: var(--warning); border-color: #ecd48a; background: #fff8dd; }
+        .badge.danger { color: var(--danger); border-color: #f0b8bd; background: #fff1f2; }
 
-        .glass-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--card-border);
-            border-radius: var(--radius-lg);
-            padding: 24px;
+        .view { display: none; }
+        .view.active { display: block; }
+
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             box-shadow: var(--shadow);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-bottom: 14px;
         }
 
-        .glass-card:hover {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
-        }
-
-        .status-container {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .status-indicator {
-            width: 14px;
-            height: 14px;
-            background: #10B981;
-            border-radius: 50%;
-            box-shadow: 0 0 10px #10B981;
-            animation: pulse 2s infinite;
-        }
-
-        .status-indicator.offline {
-            background: #EF4444;
-            box-shadow: 0 0 10px #EF4444;
-            animation: none;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-
-        .status-text {
-            font-size: 18px;
-            font-weight: 500;
-        }
-
-        .status-subtext {
-            color: var(--text-muted);
-            font-size: 14px;
-            margin-top: 4px;
-        }
-
-        .login-title {
-            margin: 0 0 8px 0;
-            font-size: 28px;
-            font-weight: 600;
-            color: #1e1b4b;
-        }
-
-        .login-copy {
-            margin: 0 0 24px 0;
-            color: var(--text-muted);
-            line-height: 1.6;
-        }
-
-        .auth-form {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .text-input {
-            width: 100%;
-            padding: 12px 14px;
-            border: 1px solid rgba(99, 102, 241, 0.18);
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-            box-sizing: border-box;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .text-input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.08);
-        }
-
-        .flex-between {
+        .section-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+            padding: 12px 14px;
         }
 
-        .btn {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: var(--radius-md);
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+        .section-header h2 {
+            margin: 0;
+            font-size: 16px;
         }
 
-        .btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
-        .btn:active { transform: translateY(0); }
-        
-        .btn-danger { background: white; color: var(--danger); border: 1px solid #fca5a5; }
-        .btn-danger:hover { background: #fef2f2; color: var(--danger-hover); border-color: #f87171; }
+        .section-body {
+            padding: 14px;
+        }
 
-        .table-wrapper {
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(140px, 1fr));
+            gap: 10px;
+        }
+
+        .metric {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            min-height: 88px;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }
+
+        .metric-note {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .table-wrap {
             overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid rgba(0,0,0,0.05);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            text-align: left;
-            background: rgba(255, 255, 255, 0.5);
+            background: #fff;
         }
 
         th, td {
-            padding: 14px 16px;
-            border-bottom: 1px solid rgba(0,0,0,0.05);
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+            text-align: left;
+            font-size: 13px;
         }
 
         th {
-            background: rgba(243, 244, 246, 0.5);
-            font-weight: 600;
-            color: var(--text-muted);
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            background: var(--surface-muted);
+            color: #344054;
+            font-weight: 650;
+            white-space: nowrap;
         }
 
-        td {
+        tr:last-child td { border-bottom: 0; }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .muted { color: var(--muted); }
+        .strong { font-weight: 650; }
+        .danger-text { color: var(--danger); }
+        .success-text { color: var(--success); }
+        .warning-text { color: var(--warning); }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 650;
+            color: #344054;
+            margin-bottom: 5px;
+        }
+
+        .field small {
+            display: block;
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .config-group {
+            border-top: 1px solid var(--border);
+            padding-top: 14px;
+            margin-top: 14px;
+        }
+
+        .config-group:first-child {
+            border-top: 0;
+            padding-top: 0;
+            margin-top: 0;
+        }
+
+        .config-group h3 {
+            margin: 0 0 10px;
             font-size: 14px;
-            color: #374151;
         }
 
-        .empty-state {
+        .inline-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .split {
+            display: grid;
+            grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+            gap: 14px;
+        }
+
+        .mapping-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .mapping-row {
+            display: grid;
+            grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .empty {
+            padding: 24px;
             text-align: center;
-            padding: 40px;
-            color: var(--text-muted);
-            font-size: 14px;
+            color: var(--muted);
         }
 
-        /* Modal Styles */
         .modal-overlay {
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(4px);
-            display: flex;
+            inset: 0;
+            display: none;
             align-items: center;
             justify-content: center;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.3s ease;
-            z-index: 1000;
+            background: rgba(16, 24, 40, 0.42);
+            padding: 18px;
+            z-index: 10;
         }
 
-        .modal-overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
+        .modal-overlay.active { display: flex; }
 
         .modal {
-            background: white;
-            width: 100%;
-            max-width: 480px;
-            border-radius: var(--radius-lg);
-            padding: 24px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            transform: scale(0.95) translateY(10px);
-            transition: all 0.3s ease;
+            width: min(560px, 100%);
+            background: #fff;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: 0 18px 40px rgba(16, 24, 40, 0.22);
         }
 
-        .modal-overlay.active .modal {
-            transform: scale(1) translateY(0);
+        .modal-header,
+        .modal-body,
+        .modal-actions {
+            padding: 14px;
         }
 
-        .modal-title { margin: 0 0 16px 0; font-size: 20px; font-weight: 600; }
-        .form-group { margin-bottom: 16px; }
-        .form-label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #374151; }
-        .form-control {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #D1D5DB;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 13px;
-            box-sizing: border-box;
-            transition: border-color 0.2s;
-            resize: vertical;
-            min-height: 100px;
+        .modal-header {
+            border-bottom: 1px solid var(--border);
         }
-        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
-        .form-hint { font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;}
-        
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 16px;
+        }
+
         .modal-actions {
             display: flex;
             justify-content: flex-end;
-            gap: 12px;
-            margin-top: 24px;
+            gap: 8px;
+            border-top: 1px solid var(--border);
         }
-
-        .btn-outline { background: transparent; border: 1px solid #D1D5DB; color: #4B5563; }
-        .btn-outline:hover { background: #F3F4F6; }
 
         .toast {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: white;
-            border-left: 4px solid var(--primary);
-            padding: 12px 20px;
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            transform: translateX(120%);
-            transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-            z-index: 2000;
-            font-size: 14px;
-            font-weight: 500;
-        }
-        .toast.show { transform: translateX(0); }
-        .toast.error { border-left-color: var(--danger); color: var(--danger); }
-        .toast.success { border-left-color: #10B981; color: #047857; }
-
-        @media (max-width: 720px) {
-            body {
-                padding: 24px 14px;
-            }
-
-            .header {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-
-            .header-meta {
-                justify-content: flex-start;
-            }
-
-            .glass-card,
-            .modal {
-                padding: 18px;
-            }
-
-            th, td {
-                padding: 12px;
-            }
+            right: 18px;
+            bottom: 18px;
+            max-width: min(420px, calc(100vw - 36px));
+            background: #111827;
+            color: #fff;
+            border-radius: 6px;
+            padding: 10px 12px;
+            box-shadow: 0 8px 24px rgba(16, 24, 40, 0.24);
+            display: none;
+            z-index: 20;
         }
 
+        .toast.show { display: block; }
+        .toast.error { background: #7f1d1d; }
+        .toast.success { background: #14532d; }
+
+        @media (max-width: 920px) {
+            .app { grid-template-columns: 1fr; }
+            .sidebar {
+                position: static;
+                height: auto;
+            }
+            .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .split { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 620px) {
+            .main { padding: 14px; }
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .top-actions { justify-content: flex-start; }
+            .metrics-grid,
+            .form-grid,
+            .mapping-row {
+                grid-template-columns: 1fr;
+            }
+            th, td { padding: 9px; }
+        }
+
+        /* Huashu Design pass: dense operator console, neutral surface, status-first hierarchy. */
+        :root {
+            --bg: #eef1f4;
+            --surface: #ffffff;
+            --surface-muted: #f7f8fa;
+            --surface-raised: #fbfcfd;
+            --border: #d5dbe3;
+            --border-strong: #aeb8c5;
+            --text: #14171c;
+            --muted: #637083;
+            --primary: #0f766e;
+            --primary-dark: #0b5f59;
+            --danger: #c2413d;
+            --warning: #a05a12;
+            --success: #16803c;
+            --info: #2563eb;
+            --radius: 6px;
+            --shadow: none;
+        }
+
+        body {
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0) 260px),
+                var(--bg);
+        }
+
+        button {
+            border-radius: 5px;
+            min-height: 32px;
+            padding: 6px 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        input, select, textarea {
+            border-radius: 5px;
+            min-height: 32px;
+            font-size: 13px;
+        }
+
+        .login-panel {
+            border-color: var(--border-strong);
+            box-shadow: 0 16px 44px rgba(20, 23, 28, 0.12);
+        }
+
+        .app {
+            grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .sidebar {
+            background: #171a1f;
+            border-right: 1px solid #0e1116;
+            padding: 16px 12px;
+        }
+
+        .brand {
+            padding: 2px 8px 16px;
+            border-bottom-color: rgba(255,255,255,0.14);
+        }
+
+        .brand-title {
+            font-size: 17px;
+            letter-spacing: 0;
+        }
+
+        .brand-subtitle {
+            color: rgba(255,255,255,0.58);
+        }
+
+        .nav {
+            gap: 2px;
+        }
+
+        .nav button {
+            border-radius: 5px;
+            min-height: 34px;
+            padding: 8px 10px;
+        }
+
+        .nav button:hover,
+        .nav button.active {
+            background: #26302f;
+            color: #f8fafc;
+        }
+
+        .main {
+            padding: 18px 22px 28px;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            margin: -18px -22px 18px;
+            padding: 14px 22px;
+            background: rgba(238, 241, 244, 0.92);
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+
+        .topbar h1 {
+            font-size: 20px;
+            font-weight: 750;
+        }
+
+        .badge {
+            border-radius: 5px;
+            min-height: 22px;
+            padding: 2px 7px;
+            font-weight: 650;
+        }
+
+        .badge.success { color: #0f6b35; border-color: #9bd4ae; background: #eff9f2; }
+        .badge.warn { color: #8a4b0f; border-color: #e6bd78; background: #fff6e8; }
+        .badge.danger { color: #a93431; border-color: #e2aaa7; background: #fff1f0; }
+        .badge.info { color: #1d4ed8; border-color: #a9c4ff; background: #eff5ff; }
+
+        .section {
+            border-color: var(--border);
+            box-shadow: none;
+            margin-bottom: 12px;
+        }
+
+        .section-header {
+            min-height: 48px;
+            padding: 10px 12px;
+            background: var(--surface-raised);
+        }
+
+        .section-header h2 {
+            font-size: 15px;
+            font-weight: 750;
+        }
+
+        .section-title p {
+            margin: 3px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .section-body {
+            padding: 12px;
+        }
+
+        .metrics-grid {
+            grid-template-columns: repeat(4, minmax(150px, 1fr));
+            gap: 8px;
+        }
+
+        .metric {
+            background: var(--surface);
+            border-radius: 6px;
+            min-height: 78px;
+            padding: 10px;
+        }
+
+        .metric-label,
+        .metric-note {
+            font-size: 11px;
+        }
+
+        .metric-value {
+            font-size: 22px;
+            font-weight: 760;
+        }
+
+        .table-wrap {
+            border-radius: 6px;
+        }
+
+        table {
+            table-layout: auto;
+        }
+
+        th {
+            background: #f3f5f7;
+            color: #475467;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        td {
+            background: #fff;
+        }
+
+        tr:hover td {
+            background: #fbfcfd;
+        }
+
+        .account-summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .summary-cell {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 9px 10px;
+            background: var(--surface-raised);
+        }
+
+        .summary-label {
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .summary-value {
+            margin-top: 4px;
+            font-size: 18px;
+            font-weight: 760;
+        }
+
+        .status-stack {
+            display: grid;
+            gap: 6px;
+            min-width: 150px;
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 22px;
+            padding: 2px 7px;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: #f8fafc;
+            color: #475467;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .status-pill::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #98a2b3;
+        }
+
+        .status-pill.available,
+        .status-pill.online,
+        .status-pill.ok {
+            color: var(--success);
+            border-color: #a8d8b8;
+            background: #f1faf4;
+        }
+
+        .status-pill.available::before,
+        .status-pill.online::before,
+        .status-pill.ok::before {
+            background: var(--success);
+        }
+
+        .status-pill.warn {
+            color: var(--warning);
+            border-color: #e7c289;
+            background: #fff7e9;
+        }
+
+        .status-pill.warn::before {
+            background: var(--warning);
+        }
+
+        .status-pill.danger {
+            color: var(--danger);
+            border-color: #e2aaa7;
+            background: #fff1f0;
+        }
+
+        .status-pill.danger::before {
+            background: var(--danger);
+        }
+
+        .runtime-countdown {
+            color: #111827;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: inherit;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+
+        .runtime-countdown.is-expired {
+            color: var(--danger);
+        }
+
+        .time-bar {
+            position: relative;
+            width: 100%;
+            height: 6px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #e6eaf0;
+        }
+
+        .time-bar span {
+            display: block;
+            height: 100%;
+            min-width: 2px;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--primary), var(--info));
+        }
+
+        .time-bar.low span {
+            background: linear-gradient(90deg, var(--warning), var(--danger));
+        }
+
+        .mono {
+            color: #344054;
+        }
+
+        .config-group {
+            border-top-style: dashed;
+        }
+
+        @media (max-width: 920px) {
+            .app { grid-template-columns: 1fr; }
+            .topbar {
+                position: static;
+                margin: 0 0 14px;
+                padding: 0;
+                background: transparent;
+                border-bottom: 0;
+                backdrop-filter: none;
+            }
+            .account-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 620px) {
+            .main { padding: 12px; }
+            .account-summary { grid-template-columns: 1fr; }
+            .status-line { align-items: flex-start; flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-    <div id="authShell" class="auth-shell hidden">
-        <div class="glass-card">
-            <h1 class="login-title">Mimo2 Center</h1>
-            <p class="login-copy">这个面板现在需要登录后才能查看和管理节点账号。</p>
-            <div class="auth-form">
-                <div>
-                    <label class="form-label" for="loginUsername">用户名</label>
-                    <input id="loginUsername" class="text-input" autocomplete="username" />
-                </div>
-                <div>
-                    <label class="form-label" for="loginPassword">密码</label>
-                    <input id="loginPassword" class="text-input" type="password" autocomplete="current-password" />
-                </div>
-                <button class="btn" onclick="submitLogin()">登录</button>
+    <div id="authShell" class="login-page hidden">
+        <div class="login-panel">
+            <h1>Mimo2 综合控制台</h1>
+            <p>请输入 WebUI 凭据。</p>
+            <div class="field">
+                <label for="loginUsername">用户名</label>
+                <input id="loginUsername" autocomplete="username">
             </div>
+            <div class="field" style="margin-top: 12px;">
+                <label for="loginPassword">密码</label>
+                <input id="loginPassword" type="password" autocomplete="current-password">
+            </div>
+            <button class="primary" style="width:100%; margin-top:16px;" onclick="submitLogin()">登录</button>
         </div>
     </div>
 
-    <div id="appShell" class="container hidden">
-        <div class="header">
-            <h1>Mimo2 Center</h1>
-            <div class="header-meta">
-                <span id="webAuthBadge" class="badge">WebUI 未鉴权</span>
-                <span id="aiAuthBadge" class="badge warn">AI 端点未鉴权</span>
-                <button id="logoutBtn" class="btn btn-outline hidden" onclick="logout()">退出登录</button>
+    <div id="appShell" class="app hidden">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-title">Mimo2 控制台</div>
+                <div class="brand-subtitle">生命周期 / 隧道 / 配置中心</div>
             </div>
-        </div>
+            <nav class="nav" id="nav">
+                <button data-view="overview" class="active">总览</button>
+                <button data-view="lifecycle">生命周期</button>
+                <button data-view="accounts">账号管理</button>
+                <button data-view="mapping">模型映射</button>
+                <button data-view="errors">错误日志</button>
+                <button data-view="tunnel">网关出口</button>
+                <button data-view="config">系统配置</button>
+            </nav>
+        </aside>
 
-        <!-- 状态卡片 -->
-        <div class="glass-card">
-            <div>
-                <div class="status-container">
-                    <div id="statusIndicator" class="status-indicator"></div>
-                    <div>
-                        <div class="status-text">网关运行中</div>
-                        <div class="status-subtext" id="statusText">正在获取实时数据...</div>
+        <main class="main">
+            <div class="topbar">
+                <h1 id="viewTitle">总览</h1>
+                <div class="top-actions">
+                    <span id="webAuthBadge" class="badge">WebUI</span>
+                    <span id="aiAuthBadge" class="badge">AI 鉴权</span>
+                    <button onclick="refreshCurrentView()">刷新</button>
+                    <button id="logoutBtn" class="hidden" onclick="logout()">退出</button>
+                </div>
+            </div>
+
+            <section id="view-overview" class="view active">
+                <div class="metrics-grid" id="overviewMetrics"></div>
+                <div class="section">
+                    <div class="section-header">
+                        <h2>最近错误</h2>
+                        <button onclick="loadErrors()">刷新错误</button>
+                    </div>
+                    <div class="section-body" id="recentErrors">加载中...</div>
+                </div>
+            </section>
+
+            <section id="view-lifecycle" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>账号生命周期</h2>
+                        <div class="inline-actions">
+                            <label class="inline-actions"><input id="abnormalOnly" type="checkbox" style="width:auto; min-height:auto;" onchange="renderLifecycle()"> 只看异常</label>
+                            <button onclick="loadLifecycle(true)">刷新</button>
+                            <button class="primary" onclick="triggerLifecycleRebuild()">全局重建</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="lifecycleTable">加载中...</div>
+                </div>
+            </section>
+
+            <section id="view-accounts" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <h2>Claw 运行账号</h2>
+                            <p>实例状态每 5 秒刷新，剩余时间本地实时倒计时</p>
+                        </div>
+                        <div class="inline-actions">
+                            <span class="badge info">自动刷新</span>
+                            <button class="primary" onclick="openImportModal()">导入凭证</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="usersTable">加载中...</div>
+                </div>
+            </section>
+
+            <section id="view-mapping" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>模型映射</h2>
+                        <div class="inline-actions">
+                            <button onclick="addMappingRow()">新增映射</button>
+                            <button class="primary" onclick="saveMappings()">保存</button>
+                        </div>
+                    </div>
+                    <div class="section-body">
+                        <div id="mappingList" class="mapping-list"></div>
                     </div>
                 </div>
-            </div>
-        </div>
+            </section>
 
-        <!-- 用户管理卡片 -->
-        <div class="glass-card">
-            <div class="flex-between">
-                <h2 style="margin: 0; font-size: 18px;">Claw 运行账号管理</h2>
-                <button class="btn" onclick="openModal()">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    导入凭证
-                </button>
-            </div>
-            
-            <div class="table-wrapper">
-                <table id="usersTable">
-                    <thead>
-                        <tr>
-                            <th>用户 ID (User ID)</th>
-                            <th>备注名</th>
-                            <th>实例状态 / 剩余时长</th>
-                            <th>ServiceToken 简览</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="usersBody">
-                        <tr><td colspan="5" class="empty-state">加载中...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+            <section id="view-errors" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>错误日志</h2>
+                        <button onclick="loadErrors()">刷新</button>
+                    </div>
+                    <div class="section-body" id="errorsTable">加载中...</div>
+                </div>
+            </section>
+
+            <section id="view-tunnel" class="view">
+                <div class="split">
+                    <div class="section">
+                        <div class="section-header"><h2>隧道配置</h2></div>
+                        <div class="section-body">
+                            <div class="field">
+                                <label for="tunnelMode">模式</label>
+                                <select id="tunnelMode">
+                                    <option value="none">不使用内置隧道</option>
+                                    <option value="cloudflare_quick">Cloudflare 临时隧道</option>
+                                    <option value="cloudflare_named">Cloudflare 固定隧道</option>
+                                </select>
+                            </div>
+                            <div class="field" style="margin-top:12px;">
+                                <label for="cloudflaredBin">cloudflared 路径</label>
+                                <input id="cloudflaredBin" placeholder="cloudflared">
+                            </div>
+                            <div class="field" style="margin-top:12px;">
+                                <label for="cloudflareHostname">固定隧道域名</label>
+                                <input id="cloudflareHostname" placeholder="mimo.example.com">
+                            </div>
+                            <div class="field" style="margin-top:12px;">
+                                <label for="cloudflareToken">固定隧道 Token</label>
+                                <input id="cloudflareToken" type="password" placeholder="留空表示不修改">
+                            </div>
+                            <div class="inline-actions" style="margin-top:14px;">
+                                <button class="primary" onclick="saveTunnelConfig()">保存并重启隧道</button>
+                                <button onclick="restartTunnel()">重启</button>
+                                <button class="danger" onclick="stopTunnel()">停止</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="section">
+                        <div class="section-header"><h2>当前出口</h2></div>
+                        <div class="section-body" id="tunnelStatus">加载中...</div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="view-config" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>系统配置</h2>
+                        <div class="inline-actions">
+                            <button onclick="loadConfig()">重新读取</button>
+                            <button class="primary" onclick="saveConfig()">保存配置</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="configEditor">加载中...</div>
+                </div>
+            </section>
+        </main>
     </div>
 
-    <!-- 导入弹窗 -->
-    <div class="modal-overlay" id="importModal">
+    <div id="importModal" class="modal-overlay">
         <div class="modal">
-            <h3 class="modal-title">导入 Xiaomi 凭证</h3>
-            <div class="form-group">
-                <label class="form-label">Cookie / 凭证数据字符串</label>
-                <textarea id="cookieInput" class="form-control" placeholder='例如: serviceToken="vjQ..."; userId=686621...; xiaomichatbot_ph="6vv..."'></textarea>
-                <div class="form-hint">支持自动解析多格式文本，需至少包含 <code>userId</code>, <code>serviceToken</code> 及 <code>xiaomichatbot_ph</code>。系统会自动提取值。</div>
+            <div class="modal-header"><h2>导入 Xiaomi 凭证</h2></div>
+            <div class="modal-body">
+                <div class="field">
+                    <label for="cookieInput">Cookie / 凭证文本</label>
+                    <textarea id="cookieInput" placeholder='serviceToken="..."; userId=686621; xiaomichatbot_ph="..."'></textarea>
+                    <small>仅写入本机 users/ 运行目录，不会通过用户列表 API 回显敏感值。</small>
+                </div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-outline" onclick="closeModal()">取消</button>
-                <button class="btn" onclick="submitImport()">确认导入</button>
+                <button onclick="closeImportModal()">取消</button>
+                <button class="primary" onclick="submitImport()">导入</button>
             </div>
         </div>
     </div>
@@ -443,16 +983,107 @@
     <div id="toast" class="toast"></div>
 
     <script>
-        let statusInterval;
-        let webAuthEnabled = false;
-        let webAuthReady = false;
-        let preferredUsername = 'admin';
+        const state = {
+            activeView: 'overview',
+            session: null,
+            stats: null,
+            lifecycle: null,
+            users: [],
+            errors: [],
+            mapping: {},
+            config: null,
+            tunnel: null,
+            pollTimer: null,
+            tickTimer: null,
+            pollInFlight: false,
+        };
 
-        function showToast(msg, type='success') {
+        const titles = {
+            overview: '总览',
+            lifecycle: '生命周期',
+            accounts: '账号管理',
+            mapping: '模型映射',
+            errors: '错误日志',
+            tunnel: '网关出口',
+            config: '系统配置',
+        };
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
+        function fmtNumber(value, digits = 0) {
+            const n = Number(value || 0);
+            return n.toLocaleString('zh-CN', { maximumFractionDigits: digits });
+        }
+
+        function fmtDuration(seconds) {
+            seconds = Math.max(0, Number(seconds || 0));
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (h > 0) return `${h} 小时 ${m} 分`;
+            if (m > 0) return `${m} 分 ${s} 秒`;
+            return `${s} 秒`;
+        }
+
+        function fmtTime(ts) {
+            if (!ts) return '-';
+            return new Date(Number(ts) * 1000).toLocaleString('zh-CN');
+        }
+
+        function countdownUntil(seconds) {
+            const value = Math.max(0, Number(seconds || 0));
+            return Date.now() + value * 1000;
+        }
+
+        function countdownHtml(seconds, emptyText = '-') {
+            const value = Math.max(0, Number(seconds || 0));
+            if (value <= 0) return `<span class="muted">${escapeHtml(emptyText)}</span>`;
+            return `<span class="runtime-countdown" data-countdown-until="${countdownUntil(value)}" data-empty-text="${escapeHtml(emptyText)}">${fmtDuration(value)}</span>`;
+        }
+
+        function refreshRuntimeCountdowns() {
+            document.querySelectorAll('[data-countdown-until]').forEach(el => {
+                const until = Number(el.dataset.countdownUntil || 0);
+                const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+                el.textContent = remaining > 0 ? fmtDuration(remaining) : (el.dataset.emptyText || '-');
+                el.classList.toggle('is-expired', remaining <= 0);
+            });
+        }
+
+        function timeBarHtml(seconds) {
+            const value = Math.max(0, Number(seconds || 0));
+            if (value <= 0) return '<div class="time-bar low"><span style="width:0%"></span></div>';
+            const percent = Math.max(3, Math.min(100, Math.round((value / 3600) * 100)));
+            const low = value <= 600 ? ' low' : '';
+            return `<div class="time-bar${low}"><span style="width:${percent}%"></span></div>`;
+        }
+
+        function statusClass(value) {
+            const text = String(value || '').toLowerCase();
+            if (/(available|online|healthy|success|running)/.test(text)) return 'available';
+            if (/(destroyed|expired|error|failed|unavailable|missing|stale)/.test(text)) return 'danger';
+            if (/(creating|pending|cooling|starting|unknown)/.test(text)) return 'warn';
+            return 'warn';
+        }
+
+        function statusPill(value, fallback = 'UNKNOWN') {
+            const text = value || fallback;
+            return `<span class="status-pill ${statusClass(text)}">${escapeHtml(text)}</span>`;
+        }
+
+        function badge(text, type = '') {
+            return `<span class="badge ${type}">${escapeHtml(text)}</span>`;
+        }
+
+        function showToast(message, type = 'success') {
             const el = document.getElementById('toast');
-            el.textContent = msg;
+            el.textContent = message;
             el.className = `toast show ${type}`;
-            setTimeout(() => { el.className = `toast ${type}`; }, 3000);
+            setTimeout(() => { el.className = 'toast'; }, 3200);
         }
 
         function setShellVisibility(showApp) {
@@ -460,253 +1091,563 @@
             document.getElementById('authShell').classList.toggle('hidden', showApp);
         }
 
-        function applyAuthBadges(session) {
-            const webBadge = document.getElementById('webAuthBadge');
-            const aiBadge = document.getElementById('aiAuthBadge');
-            const logoutBtn = document.getElementById('logoutBtn');
-
-            webBadge.textContent = session.enabled ? `WebUI 已鉴权 · ${session.username}` : 'WebUI 未鉴权';
-            webBadge.className = `badge${session.enabled ? '' : ' warn'}`;
-            aiBadge.textContent = session.ai_auth_enabled ? 'AI 端点已鉴权' : 'AI 端点未鉴权';
-            aiBadge.className = `badge${session.ai_auth_enabled ? '' : ' warn'}`;
-            logoutBtn.classList.toggle('hidden', !session.enabled);
-        }
-
-        async function fetchSession() {
-            const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
-            if (!res.ok) {
-                throw new Error('获取登录状态失败');
-            }
-            const session = await res.json();
-            webAuthEnabled = !!session.enabled;
-            preferredUsername = session.username || 'admin';
-            document.getElementById('loginUsername').value = preferredUsername;
-            applyAuthBadges(session);
-            return session;
-        }
-
         async function apiFetch(url, options = {}) {
-            const opts = { credentials: 'same-origin', ...options };
-            const res = await fetch(url, opts);
+            const res = await fetch(url, { credentials: 'same-origin', ...options });
             if (res.status === 401) {
-                const wasAuthenticated = webAuthReady;
-                webAuthReady = false;
                 setShellVisibility(false);
-                // 仅在会话过期（之前已登录）时清空密码，未登录状态下不干扰用户输入
-                if (wasAuthenticated) {
-                    document.getElementById('loginPassword').value = '';
-                }
-                showToast('登录已失效，请重新登录', 'error');
+                document.getElementById('loginPassword').value = '';
+                showToast('登录已失效', 'error');
                 throw new Error('UNAUTHORIZED');
             }
             return res;
         }
 
-        function startStatusPolling() {
-            if (statusInterval) {
-                clearInterval(statusInterval);
+        async function fetchJson(url, options = {}) {
+            const res = await apiFetch(url, options);
+            const text = await res.text();
+            const data = text ? JSON.parse(text) : {};
+            if (!res.ok) {
+                throw new Error(data.detail || data.error || res.statusText);
             }
-            statusInterval = setInterval(() => {
-                if (webAuthReady || !webAuthEnabled) {
-                    fetchStatus();
-                }
-            }, 3000);
+            return data;
         }
 
-        async function fetchStatus() {
-            // 认证开启但未登录时，跳过状态请求（避免 401 清空密码输入框）
-            if (webAuthEnabled && !webAuthReady) return;
-            try {
-                const res = await apiFetch('/api/system/status');
-                const data = await res.json();
-                const indicator = document.getElementById('statusIndicator');
-                const text = document.getElementById('statusText');
-                
-                if (data.active_clients > 0) {
-                    indicator.className = 'status-indicator';
-                    text.textContent = `内网通信节点保持连接: ${data.active_clients} 个`;
-                } else {
-                    indicator.className = 'status-indicator offline';
-                    text.textContent = `危险！没有任何一个内网节点在线，所有 API 请求将被退回`;
-                }
-            } catch(e) {
-                if (e.message === 'UNAUTHORIZED') {
-                    return;
-                }
-                document.getElementById('statusIndicator').className = 'status-indicator offline';
-                document.getElementById('statusText').textContent = '后端连接失败';
-            }
+        function applyAuthBadges(session) {
+            document.getElementById('webAuthBadge').className = `badge ${session.enabled ? 'success' : 'warn'}`;
+            document.getElementById('webAuthBadge').textContent = session.enabled ? `WebUI 已鉴权 · ${session.username}` : 'WebUI 未启用密码';
+            document.getElementById('aiAuthBadge').className = `badge ${session.ai_auth_enabled ? 'success' : 'warn'}`;
+            document.getElementById('aiAuthBadge').textContent = session.ai_auth_enabled ? 'AI 端点已鉴权' : 'AI 端点未鉴权';
+            document.getElementById('logoutBtn').classList.toggle('hidden', !session.enabled);
         }
 
-        async function fetchUsers() {
-            try {
-                const res = await apiFetch('/api/users/list');
-                const data = await res.json();
-                const tbody = document.getElementById('usersBody');
-                
-                if (data.users && data.users.length > 0) {
-                    tbody.innerHTML = data.users.map(u => `
-                        <tr>
-                            <td><strong style="color:var(--primary)">${u.userId}</strong></td>
-                            <td>${u.name || '(未命名)'}</td>
-                            <td>
-                                <div><strong style="color: ${u.claw_status === 'AVAILABLE' ? '#10B981' : (u.claw_status === 'EXPIRED(401)' ? '#EF4444' : '#F59E0B')}">${u.claw_status || '未知'}</strong></div>
-                                <div class="countdown-text" data-remain="${u.remain_sec}" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                                    ${u.remain_sec > 0 ? '剩余: ' + Math.floor(u.remain_sec / 60) + ' 分 ' + (u.remain_sec % 60) + ' 秒' : '已过期/无环境'}
-                                </div>
-                            </td>
-                            <td>
-                                <span style="display:inline-block; max-width: 120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color: var(--text-muted);">
-                                    ${u.serviceToken ? u.serviceToken.substring(0,10)+'...' : '无效'}
-                                </span>
-                            </td>
-                            <td>
-                                <button class="btn btn-danger" onclick="deleteUser('${u.userId}')">删除</button>
-                            </td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">当前未加载任何凭证</td></tr>';
-                }
-            } catch(e) {
-                if (e.message !== 'UNAUTHORIZED') {
-                    console.error("加载用户列表失败", e);
-                }
-            }
-        }
-
-        async function deleteUser(uid) {
-            if(!confirm(`确定要移除账号 ${uid} 吗？\n删除后下一次轮换将不再拉起该账号的请求。`)) return;
-            try {
-                const res = await apiFetch(`/api/users/delete/${uid}`, {method: 'DELETE'});
-                if(res.ok) {
-                    showToast('删除成功');
-                    fetchUsers();
-                } else {
-                    showToast('删除失败: '+ (await res.text()), 'error');
-                }
-            } catch(e) {
-                showToast('网络请求异常', 'error');
-            }
-        }
-
-        function openModal() {
-            document.getElementById('cookieInput').value = '';
-            document.getElementById('importModal').classList.add('active');
-        }
-
-        function closeModal() {
-            document.getElementById('importModal').classList.remove('active');
+        async function fetchSession() {
+            const session = await fetchJson('/api/auth/session');
+            state.session = session;
+            document.getElementById('loginUsername').value = session.username || 'admin';
+            applyAuthBadges(session);
+            return session;
         }
 
         async function submitLogin() {
-            const username = document.getElementById('loginUsername').value.trim() || preferredUsername;
+            const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
-            if (!password) {
-                showToast('密码不能为空', 'error');
-                return;
-            }
-
+            if (!password) return showToast('密码不能为空', 'error');
             try {
-                const res = await fetch('/api/auth/login', {
+                const data = await fetchJson('/api/auth/login', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ username, password })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
                 });
-                const data = await res.json();
-                if (!res.ok) {
-                    showToast(data.detail || '登录失败', 'error');
-                    return;
-                }
-                webAuthReady = true;
+                state.session = { ...state.session, ...data, authenticated: true };
                 document.getElementById('loginPassword').value = '';
                 setShellVisibility(true);
-                showToast('登录成功');
-                await initializeDashboard();
-            } catch (e) {
-                showToast('登录请求失败', 'error');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message || '登录失败', 'error');
             }
         }
 
         async function logout() {
-            try {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    credentials: 'same-origin'
-                });
-            } finally {
-                webAuthReady = false;
-                setShellVisibility(false);
-                document.getElementById('loginPassword').value = '';
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+            stopPolling();
+            setShellVisibility(false);
+        }
+
+        function switchView(view) {
+            state.activeView = view;
+            document.querySelectorAll('.nav button').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+            document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
+            document.getElementById('viewTitle').textContent = titles[view] || view;
+            refreshCurrentView();
+        }
+
+        async function refreshCurrentView() {
+            const view = state.activeView;
+            if (view === 'overview') return loadOverview();
+            if (view === 'lifecycle') return loadLifecycle(false);
+            if (view === 'accounts') return loadUsers();
+            if (view === 'mapping') return loadMappings();
+            if (view === 'errors') return loadErrors();
+            if (view === 'tunnel') return Promise.all([loadConfig(), loadTunnel()]);
+            if (view === 'config') return loadConfig();
+        }
+
+        function renderMetrics(items) {
+            return items.map(item => `
+                <div class="metric">
+                    <div class="metric-label">${escapeHtml(item.label)}</div>
+                    <div class="metric-value">${escapeHtml(item.value)}</div>
+                    <div class="metric-note">${escapeHtml(item.note || '')}</div>
+                </div>
+            `).join('');
+        }
+
+        async function loadOverview() {
+            const [stats, errors, lifecycle, tunnel] = await Promise.all([
+                fetchJson('/api/stats'),
+                fetchJson('/api/errors?limit=5'),
+                fetchJson('/api/lifecycle/status'),
+                fetchJson('/api/tunnel/status'),
+            ]);
+            state.stats = stats;
+            state.errors = errors.errors || [];
+            state.lifecycle = lifecycle;
+            state.tunnel = tunnel;
+            const req = stats.requests || {};
+            const latency = stats.latency || {};
+            const firstByte = stats.first_byte_latency || {};
+            const life = lifecycle.summary || {};
+            document.getElementById('overviewMetrics').innerHTML = renderMetrics([
+                { label: '在线节点', value: stats.active_clients || 0, note: `可用 ${stats.available_clients || 0}` },
+                { label: '异常账号', value: life.abnormal || 0, note: `账号总数 ${life.accounts_total || 0}` },
+                { label: '待处理请求', value: stats.pending_requests || 0, note: `冷却节点 ${stats.cooldown_clients || 0}` },
+                { label: '请求总数', value: req.total || 0, note: `成功率 ${fmtNumber(req.success_rate || 0, 2)}%` },
+                { label: '平均延迟', value: `${fmtNumber(latency.avg_ms || 0, 2)} ms`, note: `P95 ${fmtNumber(latency.p95_ms || 0, 2)} ms` },
+                { label: '首字延迟', value: `${fmtNumber(firstByte.avg_ms || 0, 2)} ms`, note: `P95 ${fmtNumber(firstByte.p95_ms || 0, 2)} ms` },
+                { label: '隧道状态', value: tunnel.status || 'unknown', note: tunnel.mode || 'none' },
+                { label: '运行时间', value: fmtDuration(stats.uptime_seconds || 0), note: `后台任务 ${stats.background_tasks || 0}` },
+            ]);
+            renderRecentErrors();
+        }
+
+        function renderRecentErrors() {
+            const el = document.getElementById('recentErrors');
+            const errors = state.errors || [];
+            if (!errors.length) {
+                el.innerHTML = '<div class="empty">暂无错误</div>';
+                return;
             }
+            el.innerHTML = renderErrorsTable(errors);
+        }
+
+        async function loadLifecycle(forceRefresh = false) {
+            state.lifecycle = await fetchJson(`/api/lifecycle/status${forceRefresh ? '?refresh=true' : ''}`);
+            renderLifecycle();
+        }
+
+        function lifecycleBadge(status) {
+            if (status === 'bridge_online') return badge('健康', 'success');
+            if (status === 'expiring_soon' || status === 'cooling_down' || status === 'cloud_available_bridge_missing') return badge(statusText(status), 'warn');
+            if (status === 'credential_expired' || status === 'bridge_stale') return badge(statusText(status), 'danger');
+            return badge(statusText(status));
+        }
+
+        function statusText(status) {
+            const map = {
+                bridge_online: '健康',
+                expiring_soon: '即将过期',
+                cooling_down: '冷却中',
+                cloud_available_bridge_missing: '云端可用但未接入',
+                credential_expired: '凭证失效',
+                bridge_stale: '桥接失联',
+                bridge_ambiguous: '外网节点未识别',
+                cloud_destroyed: '云端已销毁',
+                cloud_unavailable: '云端不可用',
+                rebuild_pending: '重建中',
+                not_configured: '未配置',
+                unknown: '未知',
+            };
+            return map[status] || status || '未知';
+        }
+
+        function renderLifecycle() {
+            const el = document.getElementById('lifecycleTable');
+            const rows = [...((state.lifecycle || {}).accounts || [])];
+            const abnormalOnly = document.getElementById('abnormalOnly')?.checked;
+            const filtered = abnormalOnly ? rows.filter(row => !['bridge_online', 'expiring_soon'].includes(row.lifecycle_status)) : rows;
+            if (!filtered.length) {
+                el.innerHTML = '<div class="empty">没有匹配的账号</div>';
+                return;
+            }
+            const bridgePill = row => {
+                const source = row.bridge_source && row.bridge_source !== 'none'
+                    ? `<div class="muted">${escapeHtml(row.bridge_source)}</div>`
+                    : '';
+                if (row.bridge_status === 'online') return `${statusPill('online')}${source}`;
+                if (row.bridge_status === 'stale') return `${statusPill('stale')}${source}`;
+                return `${statusPill(row.bridge_status || 'missing')}${source}`;
+            };
+            el.innerHTML = `
+                <div class="table-wrap"><table>
+                    <thead><tr>
+                        <th>账号</th><th>云端状态</th><th>Bridge</th><th>最后活跃</th><th>请求/冷却</th><th>判断</th><th>最近错误</th>
+                    </tr></thead>
+                    <tbody>
+                    ${filtered.map(row => `
+                        <tr>
+                            <td><div class="strong">${escapeHtml(row.name)}</div><div class="mono">${escapeHtml(row.uid)}</div></td>
+                            <td><div class="status-stack"><div class="status-line">${statusPill(row.cloud_status)}${countdownHtml(row.remain_sec, '-')}</div>${timeBarHtml(row.remain_sec)}</div></td>
+                            <td>${bridgePill(row)}</td>
+                            <td>${fmtTime(row.node_last_seen_at)}</td>
+                            <td><div>pending ${fmtNumber(row.pending_requests)}</div><div class="muted">冷却 ${countdownHtml(row.cooldown_remaining_seconds || 0, '0 秒')}</div></td>
+                            <td>${lifecycleBadge(row.lifecycle_status)}<div class="muted">连续异常 ${fmtNumber(row.consecutive_failures)}</div></td>
+                            <td class="mono">${escapeHtml(row.last_error || '-')}</td>
+                        </tr>
+                    `).join('')}
+                    </tbody>
+                </table></div>
+            `;
+            refreshRuntimeCountdowns();
+        }
+
+        async function triggerLifecycleRebuild() {
+            if (!confirm('确定触发所有账号全局重建？')) return;
+            await fetchJson('/api/lifecycle/rebuild', { method: 'POST' });
+            showToast('全局重建信号已发送');
+            await loadLifecycle(true);
+        }
+
+        async function loadUsers() {
+            const data = await fetchJson('/api/users/list');
+            state.users = data.users || [];
+            const el = document.getElementById('usersTable');
+            if (!state.users.length) {
+                el.innerHTML = '<div class="empty">当前没有导入账号</div>';
+                return;
+            }
+            const total = state.users.length;
+            const available = state.users.filter(user => String(user.claw_status || '').toUpperCase() === 'AVAILABLE').length;
+            const expired = state.users.filter(user => /EXPIRED|ERROR|DESTROYED/i.test(String(user.claw_status || ''))).length;
+            const minRemain = state.users.reduce((min, user) => {
+                const value = Number(user.remain_sec || 0);
+                return value > 0 ? Math.min(min, value) : min;
+            }, Number.POSITIVE_INFINITY);
+            el.innerHTML = `
+                <div class="account-summary">
+                    <div class="summary-cell"><div class="summary-label">账号总数</div><div class="summary-value">${fmtNumber(total)}</div></div>
+                    <div class="summary-cell"><div class="summary-label">可用实例</div><div class="summary-value success-text">${fmtNumber(available)}</div></div>
+                    <div class="summary-cell"><div class="summary-label">异常/过期</div><div class="summary-value danger-text">${fmtNumber(expired)}</div></div>
+                    <div class="summary-cell"><div class="summary-label">最短剩余</div><div class="summary-value">${Number.isFinite(minRemain) ? countdownHtml(minRemain, '-') : '-'}</div></div>
+                </div>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>账号</th><th>实例状态</th><th>凭证</th><th>操作</th></tr></thead>
+                    <tbody>${state.users.map(user => `
+                        <tr>
+                            <td><div class="strong">${escapeHtml(user.name || '(未命名)')}</div><div class="mono">${escapeHtml(user.userId)}</div></td>
+                            <td><div class="status-stack"><div class="status-line">${statusPill(user.claw_status || 'UNKNOWN')}${countdownHtml(user.remain_sec, '无剩余时间')}</div>${timeBarHtml(user.remain_sec)}</div></td>
+                            <td>${user.serviceTokenConfigured ? badge('已保存', 'success') : badge('缺失', 'danger')}</td>
+                            <td><button class="danger" onclick="deleteUser('${escapeHtml(user.userId)}')">删除</button></td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table></div>
+            `;
+            refreshRuntimeCountdowns();
+        }
+
+        function openImportModal() {
+            document.getElementById('cookieInput').value = '';
+            document.getElementById('importModal').classList.add('active');
+        }
+
+        function closeImportModal() {
+            document.getElementById('importModal').classList.remove('active');
         }
 
         async function submitImport() {
-            const val = document.getElementById('cookieInput').value;
-            if(!val.trim()) {
-                showToast('输入不能为空', 'error'); return;
-            }
-
-            try {
-                const res = await apiFetch('/api/users/add', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ raw_text: val })
-                });
-                
-                const data = await res.json();
-                if(res.ok) {
-                    showToast(`成功提取并存入 userId: ${data.userId}`);
-                    closeModal();
-                    fetchUsers();
-                } else {
-                    showToast(data.detail || '解析缺少必要字段', 'error');
-                }
-            } catch(e) {
-                if (e.message !== 'UNAUTHORIZED') {
-                    showToast('提交异常', 'error');
-                }
-            }
+            const rawText = document.getElementById('cookieInput').value;
+            if (!rawText.trim()) return showToast('输入不能为空', 'error');
+            const data = await fetchJson('/api/users/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_text: rawText }),
+            });
+            closeImportModal();
+            showToast(`已导入 ${data.userId}`);
+            await loadUsers();
         }
 
-        async function initializeDashboard() {
-            await Promise.all([fetchStatus(), fetchUsers()]);
-            startStatusPolling();
+        async function deleteUser(uid) {
+            if (!confirm(`确定删除账号 ${uid}？`)) return;
+            await fetchJson(`/api/users/delete/${encodeURIComponent(uid)}`, { method: 'DELETE' });
+            showToast('账号已删除');
+            await loadUsers();
+        }
+
+        async function loadMappings() {
+            state.mapping = await fetchJson('/api/model_mapping');
+            renderMappings();
+        }
+
+        function renderMappings() {
+            const entries = Object.entries(state.mapping || {});
+            const list = document.getElementById('mappingList');
+            list.innerHTML = entries.map(([from, to]) => mappingRow(from, to)).join('') || '<div class="empty">暂无模型映射</div>';
+        }
+
+        function mappingRow(from = '', to = '') {
+            return `
+                <div class="mapping-row">
+                    <input class="mapping-from" value="${escapeHtml(from)}" placeholder="请求模型名">
+                    <input class="mapping-to" value="${escapeHtml(to)}" placeholder="实际模型名">
+                    <button class="danger" onclick="this.closest('.mapping-row').remove()">删除</button>
+                </div>
+            `;
+        }
+
+        function addMappingRow() {
+            const list = document.getElementById('mappingList');
+            if (list.querySelector('.empty')) list.innerHTML = '';
+            list.insertAdjacentHTML('beforeend', mappingRow());
+        }
+
+        async function saveMappings() {
+            const mapping = {};
+            document.querySelectorAll('.mapping-row').forEach(row => {
+                const from = row.querySelector('.mapping-from').value.trim();
+                const to = row.querySelector('.mapping-to').value.trim();
+                if (from && to) mapping[from] = to;
+            });
+            state.mapping = await fetchJson('/api/model_mapping', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(mapping),
+            });
+            showToast('模型映射已保存');
+            renderMappings();
+        }
+
+        async function loadErrors() {
+            const data = await fetchJson('/api/errors?limit=100');
+            state.errors = data.errors || [];
+            const html = state.errors.length ? renderErrorsTable(state.errors) : '<div class="empty">暂无错误</div>';
+            const errorsTable = document.getElementById('errorsTable');
+            if (errorsTable) errorsTable.innerHTML = html;
+            renderRecentErrors();
+        }
+
+        function renderErrorsTable(errors) {
+            return `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>时间</th><th>路由</th><th>状态</th><th>原因</th><th>详情</th></tr></thead>
+                    <tbody>${errors.map(err => `
+                        <tr>
+                            <td>${fmtTime(err.ts)}</td>
+                            <td class="mono">${escapeHtml(err.route || '-')}</td>
+                            <td>${escapeHtml(err.status || '-')}</td>
+                            <td>${escapeHtml(err.reason || '-')}</td>
+                            <td class="mono">${escapeHtml(err.detail || err.request || '-')}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table></div>
+            `;
+        }
+
+        async function loadTunnel() {
+            state.tunnel = await fetchJson('/api/tunnel/status');
+            renderTunnel();
+        }
+
+        function renderTunnel() {
+            const t = state.tunnel || {};
+            document.getElementById('tunnelStatus').innerHTML = `
+                <div class="metrics-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                    <div class="metric"><div class="metric-label">状态</div><div class="metric-value">${escapeHtml(t.status || 'unknown')}</div><div class="metric-note">${escapeHtml(t.mode || 'none')}</div></div>
+                    <div class="metric"><div class="metric-label">进程</div><div class="metric-value">${escapeHtml(t.pid || '-')}</div><div class="metric-note">重启 ${fmtNumber(t.restart_count)}</div></div>
+                </div>
+                <p><span class="strong">公网 HTTP：</span><span class="mono">${escapeHtml(t.public_base_url || '-')}</span></p>
+                <p><span class="strong">当前 WS：</span><span class="mono">${escapeHtml(t.ws_url || '-')}</span></p>
+                <p><span class="strong">隧道 WS：</span><span class="mono">${escapeHtml(t.tunnel_ws_url || '-')}</span></p>
+                <p>${t.manual_ws_locked ? badge('WS_TUNNEL_URL 环境变量已锁定', 'warn') : badge('WS 地址可由运行时配置控制', 'success')}</p>
+                <p class="mono danger-text">${escapeHtml(t.last_error || '')}</p>
+            `;
+        }
+
+        async function loadConfig() {
+            state.config = await fetchJson('/api/config');
+            renderConfig();
+            applyTunnelFormFromConfig();
+        }
+
+        function fieldValue(key) {
+            const item = (state.config || {})[key];
+            if (!item) return '';
+            if (item.sensitive) return '';
+            return item.value ?? '';
+        }
+
+        function fieldMeta(key) {
+            return (state.config || {})[key] || {};
+        }
+
+        function applyTunnelFormFromConfig() {
+            const mode = document.getElementById('tunnelMode');
+            if (!mode || !state.config) return;
+            mode.value = fieldValue('tunnel.mode') || 'none';
+            document.getElementById('cloudflaredBin').value = fieldValue('tunnel.cloudflared_bin') || 'cloudflared';
+            document.getElementById('cloudflareHostname').value = fieldValue('tunnel.cloudflare_public_hostname') || '';
+            document.getElementById('cloudflareToken').value = '';
+        }
+
+        function renderConfig() {
+            const container = document.getElementById('configEditor');
+            if (!state.config) return;
+            const groups = {};
+            Object.entries(state.config).forEach(([key, item]) => {
+                if (key.startsWith('_')) return;
+                const group = item.group || '其他';
+                groups[group] ||= [];
+                groups[group].push([key, item]);
+            });
+            container.innerHTML = Object.entries(groups).map(([group, items]) => `
+                <div class="config-group">
+                    <h3>${escapeHtml(group)}</h3>
+                    <div class="form-grid">
+                        ${items.map(([key, item]) => configFieldHtml(key, item)).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function configFieldHtml(key, item) {
+            const disabled = item.editable ? '' : 'disabled';
+            const restart = item.requires_restart ? ' · 重启生效' : '';
+            const source = `来源 ${item.source}${restart}`;
+            if (item.sensitive) {
+                return `
+                    <div class="field">
+                        <label>${escapeHtml(item.label || key)}</label>
+                        <input data-config-key="${escapeHtml(key)}" type="password" placeholder="${item.configured ? '已配置，留空不修改' : '未配置'}" ${disabled}>
+                        <small>${escapeHtml(source)}</small>
+                    </div>
+                `;
+            }
+            if (item.type === 'bool') {
+                return `
+                    <div class="field">
+                        <label>${escapeHtml(item.label || key)}</label>
+                        <select data-config-key="${escapeHtml(key)}" ${disabled}>
+                            <option value="false" ${item.value ? '' : 'selected'}>关闭</option>
+                            <option value="true" ${item.value ? 'selected' : ''}>开启</option>
+                        </select>
+                        <small>${escapeHtml(source)}</small>
+                    </div>
+                `;
+            }
+            return `
+                <div class="field">
+                    <label>${escapeHtml(item.label || key)}</label>
+                    <input data-config-key="${escapeHtml(key)}" value="${escapeHtml(item.value ?? '')}" ${disabled}>
+                    <small>${escapeHtml(source)}</small>
+                </div>
+            `;
+        }
+
+        function collectConfigUpdates(scopeKeys = null) {
+            const updates = {};
+            document.querySelectorAll('[data-config-key]').forEach(input => {
+                const key = input.dataset.configKey;
+                if (scopeKeys && !scopeKeys.includes(key)) return;
+                const meta = fieldMeta(key);
+                if (!meta.editable) return;
+                if (meta.sensitive && input.value === '') return;
+                let value = input.value;
+                if (meta.type === 'bool') value = value === 'true';
+                if (meta.type === 'int') value = Number(value);
+                updates[key] = value;
+            });
+            return updates;
+        }
+
+        async function saveConfig() {
+            const updates = collectConfigUpdates();
+            await fetchJson('/api/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates }),
+            });
+            showToast('配置已保存');
+            await loadConfig();
+            await loadTunnel();
+        }
+
+        async function saveTunnelConfig() {
+            const updates = {
+                'tunnel.mode': document.getElementById('tunnelMode').value,
+                'tunnel.cloudflared_bin': document.getElementById('cloudflaredBin').value.trim() || 'cloudflared',
+                'tunnel.cloudflare_public_hostname': document.getElementById('cloudflareHostname').value.trim(),
+            };
+            const token = document.getElementById('cloudflareToken').value;
+            if (token) updates['tunnel.cloudflare_tunnel_token'] = token;
+            await fetchJson('/api/tunnel/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates }),
+            });
+            document.getElementById('cloudflareToken').value = '';
+            showToast('隧道配置已保存');
+            await Promise.all([loadConfig(), loadTunnel()]);
+        }
+
+        async function restartTunnel() {
+            await fetchJson('/api/tunnel/restart', { method: 'POST' });
+            showToast('隧道已重启');
+            await loadTunnel();
+        }
+
+        async function stopTunnel() {
+            await fetchJson('/api/tunnel/stop', { method: 'POST' });
+            showToast('隧道已停止');
+            await loadTunnel();
+        }
+
+        async function loadAll() {
+            await Promise.all([
+                loadOverview(),
+                loadLifecycle(false),
+                loadUsers(),
+                loadMappings(),
+                loadConfig(),
+                loadTunnel(),
+            ]);
+        }
+
+        function startPolling() {
+            if (state.pollTimer) clearInterval(state.pollTimer);
+            if (state.tickTimer) clearInterval(state.tickTimer);
+            state.tickTimer = setInterval(refreshRuntimeCountdowns, 1000);
+            state.pollTimer = setInterval(() => {
+                if (document.getElementById('appShell').classList.contains('hidden') || state.pollInFlight) return;
+                state.pollInFlight = true;
+                const tasks = [loadOverview()];
+                if (state.activeView === 'accounts') tasks.push(loadUsers());
+                if (state.activeView === 'lifecycle') tasks.push(loadLifecycle(false));
+                if (state.activeView === 'tunnel') tasks.push(loadTunnel());
+                Promise.allSettled(tasks).finally(() => {
+                    refreshRuntimeCountdowns();
+                    state.pollInFlight = false;
+                });
+            }, 5000);
+        }
+
+        function stopPolling() {
+            if (state.pollTimer) clearInterval(state.pollTimer);
+            if (state.tickTimer) clearInterval(state.tickTimer);
+            state.pollTimer = null;
+            state.tickTimer = null;
+            state.pollInFlight = false;
         }
 
         async function bootstrap() {
+            document.getElementById('nav').addEventListener('click', event => {
+                const button = event.target.closest('button[data-view]');
+                if (button) switchView(button.dataset.view);
+            });
             try {
                 const session = await fetchSession();
                 if (session.enabled && !session.authenticated) {
                     setShellVisibility(false);
-                    return;   // 认证未通过，不启动轮询，不触发 fetchStatus
+                    return;
                 }
-                webAuthReady = true;
                 setShellVisibility(true);
-                await initializeDashboard();
-            } catch (e) {
+                await loadAll();
+                startPolling();
+            } catch (err) {
                 setShellVisibility(false);
-                showToast('初始化失败，请刷新重试', 'error');
+                showToast('初始化失败', 'error');
             }
         }
-        
-        // 本地纯前端倒计时（不消耗任何网络请求）
-        setInterval(() => {
-            document.querySelectorAll('.countdown-text').forEach(el => {
-                let remain = parseInt(el.getAttribute('data-remain'));
-                if (remain > 0) {
-                    remain--;
-                    el.setAttribute('data-remain', remain);
-                    el.textContent = '剩余: ' + Math.floor(remain / 60) + ' 分 ' + (remain % 60) + ' 秒';
-                } else if (remain === 0 && el.textContent.includes('剩余')) {
-                    el.textContent = '即将或已过期...';
-                }
-            });
-        }, 1000);
 
         window.addEventListener('DOMContentLoaded', bootstrap);
-
     </script>
 </body>
 </html>

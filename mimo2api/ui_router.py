@@ -137,7 +137,7 @@ async def api_users_list():
         users.append({
             "userId": data.get("userId"),
             "name": data.get("name"),
-            "serviceToken": data.get("serviceToken"),
+            "serviceTokenConfigured": bool(data.get("serviceToken")),
             "claw_status": data.get("claw_status", "UNKNOWN"),
             "remain_sec": data.get("remain_sec", 0)
         })

@@ -16,6 +16,12 @@ class GatewayState:
         # 节点身份映射: 每个 bridge.py 连接时通过 ?node=<uid> 自报家门
         self.node_to_ws: Dict[str, WebSocket] = {}
         self.ws_id_to_node: Dict[int, str] = {}
+        self.node_connected_at: Dict[str, float] = {}
+        self.node_last_seen_at: Dict[str, float] = {}
+        self.node_lifecycle: Dict[str, dict] = {}
+        self.account_lifecycle: Dict[str, dict] = {}
+        self.remote_gateway: Dict[str, str] = {}
+        self.lifecycle_last_refreshed_at: float | None = None
         self.req_id_timestamps: Dict[str, float] = {}
         self.current_client_index: int = 0
         self.rebuild_event: asyncio.Event = asyncio.Event()
