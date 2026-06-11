@@ -59,6 +59,7 @@ from .metrics_store import (
     extract_usage_from_sse_chunk,
     init_metrics_db,
     load_status_history,
+    load_usage_stats,
     metrics_history_worker,
     node_label,
     reclassify_history,
@@ -508,6 +509,21 @@ async def api_status_history(hours: int = 24):
     hours = max(1, min(hours, 24 * METRICS_RETENTION_DAYS))
     return JSONResponse(content=await asyncio.to_thread(load_status_history, hours))
 
+@app.get("/api/usage")
+async def api_usage_stats(hours: int = 24, start_date: str = "", end_date: str = "", model: str = ""):
+    try:
+        return JSONResponse(
+            content=await asyncio.to_thread(
+                load_usage_stats,
+                hours=hours,
+                start_date=start_date or None,
+                end_date=end_date or None,
+                model=model,
+            )
+        )
+    except ValueError as exc:
+        return JSONResponse({"detail": f"invalid usage query: {exc}"}, status_code=400)
+
 @app.get("/api/errors")
 async def api_errors(limit: int = 50):
     limit = max(1, min(limit, 200))
@@ -563,6 +579,15 @@ def apply_model_mapping(body_text: str) -> str:
         logger.info(f"🔀 模型映射: {original_model} → {data['model']}")
         return json.dumps(data, ensure_ascii=False)
     return body_text
+
+def model_from_body_text(body_text: str) -> str:
+    try:
+        data = json.loads(body_text)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("model") or "").strip()
 
 @app.get("/api/model_mapping")
 async def api_get_model_mapping():
@@ -964,7 +989,15 @@ async def audio_speech_handler(payload: AudioSpeechRequest):
                     record_request_finished(route_key=route_key, status_code=502, started_at=request_started_at, first_byte_at=first_byte_at, success=False)
                     return JSONResponse({"error": {"message": "上游 TTS 音频数据损坏"}}, status_code=502)
 
-            record_request_finished(route_key=route_key, status_code=200, started_at=request_started_at, first_byte_at=first_byte_at, success=True)
+            record_request_finished(
+                route_key=route_key,
+                status_code=200,
+                started_at=request_started_at,
+                first_byte_at=first_byte_at,
+                success=True,
+                usage=response_json.get("usage"),
+                model=str(mimo_payload.get("model") or ""),
+            )
             return Response(audio_bytes, media_type=audio_media_type((actual_format or payload.response_format).lower()))
 
         except asyncio.TimeoutError:
@@ -1080,7 +1113,7 @@ async def responses_handler(request: Request):
                         await asyncio.gather(data_task, keepalive_task, return_exceptions=True)
                         cleanup_pending_request(current_req_id)
                         usage_obj = getattr(converter, "_usage", None)
-                        record_request_finished(route_key=route_key, status_code=status_code if stream_succeeded else 502, started_at=request_started_at, first_byte_at=first_byte_at, success=stream_succeeded, usage=usage_obj.model_dump() if usage_obj else None)
+                        record_request_finished(route_key=route_key, status_code=status_code if stream_succeeded else 502, started_at=request_started_at, first_byte_at=first_byte_at, success=stream_succeeded, usage=usage_obj.model_dump() if usage_obj else None, model=model)
 
                 return StreamingResponse(
                     responses_stream_generator(req_id, queue),
@@ -1097,7 +1130,7 @@ async def responses_handler(request: Request):
                     return JSONResponse({"error": {"message": "上游返回了非法 JSON"}}, status_code=502)
 
                 responses_resp = responses_convert_response(chat_resp)
-                record_request_finished(route_key=route_key, status_code=status_code, started_at=request_started_at, first_byte_at=first_byte_at, success=True, usage=chat_resp.get("usage"))
+                record_request_finished(route_key=route_key, status_code=status_code, started_at=request_started_at, first_byte_at=first_byte_at, success=True, usage=chat_resp.get("usage"), model=model)
                 return JSONResponse(content=responses_resp)
 
         except asyncio.TimeoutError:
@@ -1166,6 +1199,7 @@ async def _forward_request(request: Request, path: str):
     retry_state = RetryState()
     body_text = body.decode("utf-8", "ignore").lstrip("\ufeff")
     body_text = apply_model_mapping(body_text)
+    request_model = model_from_body_text(body_text)
     route_key = path
     request_started_at = time.monotonic()
 
@@ -1235,7 +1269,7 @@ async def _forward_request(request: Request, path: str):
                         keepalive_task.cancel()
                     await asyncio.gather(*[t for t in (data_task, keepalive_task) if t is not None], return_exceptions=True)
                     cleanup_pending_request(current_req_id)
-                    record_request_finished(route_key=route_key, status_code=status_code if stream_succeeded else 502, started_at=request_started_at, first_byte_at=first_byte_at, success=stream_succeeded and status_code < 400, usage=usage_data)
+                    record_request_finished(route_key=route_key, status_code=status_code if stream_succeeded else 502, started_at=request_started_at, first_byte_at=first_byte_at, success=stream_succeeded and status_code < 400, usage=usage_data, model=request_model)
 
             if status_code >= 400:
                 record_error(route_key, status_code, f"上游返回 {status_code}", detail=first_msg.get("body", "")[:300])

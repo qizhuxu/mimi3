@@ -4,6 +4,7 @@ import os
 import sqlite3
 import time
 from collections import deque
+from datetime import date, datetime, time as datetime_time, timezone
 from typing import Any
 
 from fastapi import WebSocket
@@ -107,19 +108,19 @@ def record_attempt_finished(
     _bump_counter(node_metrics["status_codes"], str(status_code))
 
 
-def record_usage(route_key: str, usage: dict[str, Any] | None) -> None:
-    if not isinstance(usage, dict):
+def record_usage(
+    route_key: str,
+    usage: dict[str, Any] | None,
+    *,
+    model: str | None = None,
+    success: bool = True,
+    created_at: int | float | None = None,
+) -> None:
+    counts = usage_token_counts(usage)
+    if counts is None:
         return
 
-    prompt_tokens = int(
-        usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0
-    )
-    completion_tokens = int(
-        usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
-    )
-    total_tokens = int(
-        usage.get("total_tokens", prompt_tokens + completion_tokens) or 0
-    )
+    prompt_tokens, completion_tokens, total_tokens = counts
 
     metrics = state.metrics["tokens"]
     route_tokens = _ensure_route_metrics(route_key)["tokens"]
@@ -133,6 +134,16 @@ def record_usage(route_key: str, usage: dict[str, Any] | None) -> None:
     route_tokens["prompt_tokens"] += prompt_tokens
     route_tokens["completion_tokens"] += completion_tokens
     route_tokens["total_tokens"] += total_tokens
+    try:
+        record_usage_bucket(
+            route_key=route_key,
+            model=model,
+            usage=usage,
+            success=success,
+            created_at=created_at,
+        )
+    except Exception:
+        pass
 
 
 def percentile_from_samples(samples: list[float], ratio: float) -> float:
@@ -172,6 +183,13 @@ def extract_usage_from_sse_chunk(chunk_body: str) -> dict[str, Any] | None:
     if "\"usage\"" not in chunk_body:
         return None
 
+    try:
+        data = json.loads(chunk_body)
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict) and isinstance(data.get("usage"), dict):
+        return data["usage"]
+
     for raw_line in chunk_body.splitlines():
         line = raw_line.strip()
         if not line.startswith("data:"):
@@ -189,6 +207,276 @@ def extract_usage_from_sse_chunk(chunk_body: str) -> dict[str, Any] | None:
     return None
 
 
+def _int_metric(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def usage_token_counts(usage: dict[str, Any] | None) -> tuple[int, int, int] | None:
+    if not isinstance(usage, dict):
+        return None
+    token_keys = {
+        "prompt_tokens",
+        "input_tokens",
+        "completion_tokens",
+        "output_tokens",
+        "total_tokens",
+    }
+    if not any(key in usage for key in token_keys):
+        return None
+
+    prompt_tokens = _int_metric(usage.get("prompt_tokens", usage.get("input_tokens", 0)))
+    completion_tokens = _int_metric(usage.get("completion_tokens", usage.get("output_tokens", 0)))
+    total_tokens = _int_metric(usage.get("total_tokens", prompt_tokens + completion_tokens))
+    if total_tokens <= 0 and (prompt_tokens or completion_tokens):
+        total_tokens = prompt_tokens + completion_tokens
+    return prompt_tokens, completion_tokens, total_tokens
+
+
+def _hour_bucket(ts: int | float | None = None) -> int:
+    value = int(time.time() if ts is None else ts)
+    return (value // 3600) * 3600
+
+
+def _model_key(model: str | None) -> str:
+    return str(model or "unknown").strip() or "unknown"
+
+
+def _ensure_usage_history_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS usage_history (
+            bucket_start INTEGER NOT NULL,
+            route TEXT NOT NULL,
+            model TEXT NOT NULL,
+            requests_with_usage INTEGER NOT NULL,
+            requests_succeeded INTEGER NOT NULL,
+            requests_failed INTEGER NOT NULL,
+            prompt_tokens INTEGER NOT NULL,
+            completion_tokens INTEGER NOT NULL,
+            total_tokens INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (bucket_start, route, model)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_usage_history_bucket
+        ON usage_history (bucket_start)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_usage_history_model
+        ON usage_history (model)
+        """
+    )
+
+
+def record_usage_bucket(
+    *,
+    route_key: str,
+    model: str | None,
+    usage: dict[str, Any] | None,
+    success: bool,
+    created_at: int | float | None = None,
+    now: int | float | None = None,
+) -> bool:
+    counts = usage_token_counts(usage)
+    if counts is None:
+        return False
+
+    prompt_tokens, completion_tokens, total_tokens = counts
+    bucket_start = _hour_bucket(created_at)
+    updated_at = int(time.time() if now is None else now)
+    route = str(route_key or "unknown")
+    model_name = _model_key(model)
+    conn = sqlite3.connect(METRICS_DB_PATH, timeout=30)
+    try:
+        _ensure_usage_history_table(conn)
+        conn.execute(
+            """
+            INSERT INTO usage_history (
+                bucket_start,
+                route,
+                model,
+                requests_with_usage,
+                requests_succeeded,
+                requests_failed,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                updated_at
+            ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(bucket_start, route, model) DO UPDATE SET
+                requests_with_usage = usage_history.requests_with_usage + excluded.requests_with_usage,
+                requests_succeeded = usage_history.requests_succeeded + excluded.requests_succeeded,
+                requests_failed = usage_history.requests_failed + excluded.requests_failed,
+                prompt_tokens = usage_history.prompt_tokens + excluded.prompt_tokens,
+                completion_tokens = usage_history.completion_tokens + excluded.completion_tokens,
+                total_tokens = usage_history.total_tokens + excluded.total_tokens,
+                updated_at = excluded.updated_at
+            """,
+            (
+                bucket_start,
+                route,
+                model_name,
+                1 if success else 0,
+                0 if success else 1,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                updated_at,
+            ),
+        )
+        retention_cutoff = updated_at - METRICS_RETENTION_DAYS * 86400
+        conn.execute("DELETE FROM usage_history WHERE bucket_start < ?", (retention_cutoff,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _date_start_ts(value: str) -> int:
+    parsed = date.fromisoformat(value)
+    return int(datetime.combine(parsed, datetime_time.min, tzinfo=timezone.utc).timestamp())
+
+
+def usage_query_window(
+    *,
+    hours: int = 24,
+    start_ts: int | None = None,
+    end_ts: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> tuple[int, int]:
+    if start_date:
+        start_ts = _date_start_ts(start_date)
+    if end_date:
+        end_ts = _date_start_ts(end_date) + 86400
+
+    now = int(time.time())
+    if end_ts is None:
+        end_ts = now
+    if start_ts is None:
+        try:
+            hour_count = max(1, min(int(hours), 24 * METRICS_RETENTION_DAYS))
+        except (TypeError, ValueError):
+            hour_count = 24
+        start_ts = end_ts - hour_count * 3600
+    return max(0, int(start_ts)), max(0, int(end_ts))
+
+
+def load_usage_stats(
+    *,
+    hours: int = 24,
+    start_ts: int | None = None,
+    end_ts: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    model: str = "",
+) -> dict[str, Any]:
+    since_ts, until_ts = usage_query_window(
+        hours=hours,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    model_filter = str(model or "").strip()
+    params: list[Any] = [since_ts, until_ts]
+    where = "bucket_start >= ? AND bucket_start < ?"
+    if model_filter:
+        where += " AND model = ?"
+        params.append(model_filter)
+
+    conn = sqlite3.connect(METRICS_DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_usage_history_table(conn)
+        rows = conn.execute(
+            f"""
+            SELECT
+                bucket_start,
+                route,
+                model,
+                requests_with_usage,
+                requests_succeeded,
+                requests_failed,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens
+            FROM usage_history
+            WHERE {where}
+            ORDER BY bucket_start, model, route
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    summary = {
+        "requests_with_usage": 0,
+        "requests_succeeded": 0,
+        "requests_failed": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+    model_totals: dict[str, dict[str, Any]] = {}
+    buckets: list[dict[str, Any]] = []
+    for row in rows:
+        item = {
+            "bucket_start": int(row["bucket_start"]),
+            "bucket_end": int(row["bucket_start"]) + 3600,
+            "route": row["route"],
+            "model": row["model"],
+            "requests_with_usage": int(row["requests_with_usage"]),
+            "requests_succeeded": int(row["requests_succeeded"]),
+            "requests_failed": int(row["requests_failed"]),
+            "prompt_tokens": int(row["prompt_tokens"]),
+            "completion_tokens": int(row["completion_tokens"]),
+            "total_tokens": int(row["total_tokens"]),
+        }
+        buckets.append(item)
+        for key in summary:
+            summary[key] += item[key]
+        model_item = model_totals.setdefault(
+            item["model"],
+            {
+                "model": item["model"],
+                "requests_with_usage": 0,
+                "requests_succeeded": 0,
+                "requests_failed": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        )
+        for key in summary:
+            model_item[key] += item[key]
+
+    models = sorted(model_totals.values(), key=lambda item: (-item["total_tokens"], item["model"]))
+    return {
+        "bucket_seconds": 3600,
+        "generated_at": int(time.time()),
+        "filters": {
+            "hours": hours,
+            "start_ts": since_ts,
+            "end_ts": until_ts,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "model": model_filter,
+        },
+        "summary": summary,
+        "models": models,
+        "buckets": buckets,
+    }
+
+
 def record_request_finished(
     *,
     route_key: str,
@@ -197,6 +485,8 @@ def record_request_finished(
     first_byte_at: float | None,
     success: bool,
     usage: dict[str, Any] | None = None,
+    model: str | None = None,
+    created_at: int | float | None = None,
 ) -> None:
     metrics = state.metrics
     route_metrics = _ensure_route_metrics(route_key)
@@ -222,7 +512,7 @@ def record_request_finished(
     _bump_counter(route_metrics["status_codes"], str(status_code))
 
     if usage:
-        record_usage(route_key, usage)
+        record_usage(route_key, usage, model=model, success=success, created_at=created_at)
 
 
 def capture_metrics_snapshot() -> dict[str, Any]:
@@ -348,6 +638,7 @@ def init_metrics_db() -> None:
             ON status_history (bucket_start)
             """
         )
+        _ensure_usage_history_table(conn)
         conn.commit()
     finally:
         conn.close()

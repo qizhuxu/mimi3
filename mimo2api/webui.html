@@ -883,6 +883,24 @@
                 <div class="metrics-grid" id="overviewMetrics"></div>
                 <div class="section">
                     <div class="section-header">
+                        <h2>Token 使用</h2>
+                        <div class="inline-actions">
+                            <input id="usageModelFilter" style="width:150px;" placeholder="模型">
+                            <input id="usageStartDate" type="date" style="width:auto;">
+                            <input id="usageEndDate" type="date" style="width:auto;">
+                            <select id="usageHours" style="width:auto;">
+                                <option value="24">24 小时</option>
+                                <option value="72">72 小时</option>
+                                <option value="168">7 天</option>
+                                <option value="720">30 天</option>
+                            </select>
+                            <button onclick="loadUsage()">刷新</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="usageOverview">加载中...</div>
+                </div>
+                <div class="section">
+                    <div class="section-header">
                         <h2>最近错误</h2>
                         <button onclick="loadErrors()">刷新错误</button>
                     </div>
@@ -1059,6 +1077,7 @@
             activeView: 'overview',
             session: null,
             stats: null,
+            usage: null,
             lifecycle: null,
             manager: null,
             users: [],
@@ -1266,17 +1285,31 @@
             `).join('');
         }
 
+        function usageQueryParams() {
+            const params = new URLSearchParams();
+            params.set('hours', document.getElementById('usageHours')?.value || '24');
+            const model = document.getElementById('usageModelFilter')?.value.trim() || '';
+            const startDate = document.getElementById('usageStartDate')?.value || '';
+            const endDate = document.getElementById('usageEndDate')?.value || '';
+            if (model) params.set('model', model);
+            if (startDate) params.set('start_date', startDate);
+            if (endDate) params.set('end_date', endDate);
+            return params;
+        }
+
         async function loadOverview() {
-            const [stats, errors, lifecycle, tunnel] = await Promise.all([
+            const [stats, errors, lifecycle, tunnel, usage] = await Promise.all([
                 fetchJson('/api/stats'),
                 fetchJson('/api/errors?limit=5'),
                 fetchJson('/api/lifecycle/status'),
                 fetchJson('/api/tunnel/status'),
+                fetchJson(`/api/usage?${usageQueryParams().toString()}`),
             ]);
             state.stats = stats;
             state.errors = errors.errors || [];
             state.lifecycle = lifecycle;
             state.tunnel = tunnel;
+            state.usage = usage;
             const req = stats.requests || {};
             const latency = stats.latency || {};
             const firstByte = stats.first_byte_latency || {};
@@ -1291,7 +1324,63 @@
                 { label: '隧道状态', value: tunnel.status || 'unknown', note: tunnel.mode || 'none' },
                 { label: '运行时间', value: fmtDuration(stats.uptime_seconds || 0), note: `后台任务 ${stats.background_tasks || 0}` },
             ]);
+            renderUsage();
             renderRecentErrors();
+        }
+
+        async function loadUsage() {
+            const target = document.getElementById('usageOverview');
+            if (!target) return;
+            state.usage = await fetchJson(`/api/usage?${usageQueryParams().toString()}`);
+            renderUsage();
+        }
+
+        function renderUsage() {
+            const target = document.getElementById('usageOverview');
+            if (!target) return;
+            const usage = state.usage || {};
+            const summary = usage.summary || {};
+            const buckets = usage.buckets || [];
+            const models = usage.models || [];
+            const successRate = summary.requests_with_usage
+                ? (Number(summary.requests_succeeded || 0) / Number(summary.requests_with_usage || 1)) * 100
+                : 0;
+            const topModels = models.slice(0, 6).map(item => `
+                <tr>
+                    <td class="mono">${escapeHtml(item.model)}</td>
+                    <td>${fmtNumber(item.requests_with_usage)}</td>
+                    <td>${fmtNumber(item.prompt_tokens)}</td>
+                    <td>${fmtNumber(item.completion_tokens)}</td>
+                    <td>${fmtNumber(item.total_tokens)}</td>
+                </tr>
+            `).join('');
+            const bucketRows = buckets.slice(-24).reverse().map(item => `
+                <tr>
+                    <td>${fmtTime(item.bucket_start)}</td>
+                    <td class="mono">${escapeHtml(item.model)}</td>
+                    <td class="mono">${escapeHtml(item.route)}</td>
+                    <td>${fmtNumber(item.requests_with_usage)}</td>
+                    <td>${fmtNumber(item.total_tokens)}</td>
+                </tr>
+            `).join('');
+            target.innerHTML = `
+                <div class="metrics-grid" style="grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-bottom:10px;">
+                    <div class="metric"><div class="metric-label">Total tokens</div><div class="metric-value">${fmtNumber(summary.total_tokens || 0)}</div><div class="metric-note">usage 请求 ${fmtNumber(summary.requests_with_usage || 0)}</div></div>
+                    <div class="metric"><div class="metric-label">Prompt tokens</div><div class="metric-value">${fmtNumber(summary.prompt_tokens || 0)}</div><div class="metric-note">输入</div></div>
+                    <div class="metric"><div class="metric-label">Completion tokens</div><div class="metric-value">${fmtNumber(summary.completion_tokens || 0)}</div><div class="metric-note">输出</div></div>
+                    <div class="metric"><div class="metric-label">成功率</div><div class="metric-value">${fmtNumber(successRate, 2)}%</div><div class="metric-note">失败 ${fmtNumber(summary.requests_failed || 0)}</div></div>
+                </div>
+                <div class="split" style="grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);">
+                    <div class="table-wrap"><table>
+                        <thead><tr><th>模型</th><th>请求</th><th>输入</th><th>输出</th><th>Total</th></tr></thead>
+                        <tbody>${topModels || '<tr><td colspan="5" class="muted">暂无 usage</td></tr>'}</tbody>
+                    </table></div>
+                    <div class="table-wrap"><table>
+                        <thead><tr><th>小时</th><th>模型</th><th>路由</th><th>请求</th><th>Total</th></tr></thead>
+                        <tbody>${bucketRows || '<tr><td colspan="5" class="muted">暂无 usage</td></tr>'}</tbody>
+                    </table></div>
+                </div>
+            `;
         }
 
         function renderRecentErrors() {
