@@ -30,7 +30,7 @@ MODEL_MAPPING_FILE = Path(__file__).parent.parent / "model_mapping.json"
 from .manager import start_manager_tasks, trigger_rebuild
 from .lifecycle_monitor import build_lifecycle_snapshot, lifecycle_monitor_worker, refresh_lifecycle_once
 from .logging_utils import apply_library_log_levels, parse_bool, resolve_log_level
-from .runtime_config import get_config_metadata, reload_runtime_config, sync_bridge_ws_env, update_runtime_config
+from .runtime_config import get_config_metadata, get_config_value, reload_runtime_config, sync_bridge_ws_env, update_runtime_config
 from .tunnel_supervisor import tunnel_supervisor
 
 # Responses API 转换器
@@ -78,6 +78,7 @@ manager_bg_task = None
 metrics_persist_task = None
 sweeper_bg_task = None
 lifecycle_bg_task = None
+manager_control_lock = asyncio.Lock()
 single_process_lock_file = None
 STALE_QUEUE_TTL = 300
 SHUTDOWN_TASK_TIMEOUT = float(os.getenv("MIMO_SHUTDOWN_TASK_TIMEOUT", "5"))
@@ -135,10 +136,84 @@ async def cancel_and_wait_tasks(tasks: list[asyncio.Task | None], *, label: str)
             f"⚠️ 关闭 {label} 超时，{len(still_running)} 个任务在 {SHUTDOWN_TASK_TIMEOUT}s 内未退出"
         )
 
+
+def manager_autostart_enabled() -> bool:
+    return bool(get_config_value("manager.autostart", True))
+
+
+def manager_task_status() -> dict[str, Any]:
+    task = manager_bg_task
+    running = task is not None and not task.done()
+    done = bool(task and task.done())
+    cancelled = bool(task and task.cancelled())
+    state = "stopped"
+    error = ""
+
+    if task is not None:
+        if running:
+            state = "running"
+        elif cancelled:
+            state = "cancelled"
+        else:
+            try:
+                exc = task.exception() if done else None
+            except asyncio.CancelledError:
+                exc = None
+                cancelled = True
+                state = "cancelled"
+            if state != "cancelled":
+                state = "failed" if exc else "finished"
+                error = f"{type(exc).__name__}: {exc}" if exc else ""
+
+    return {
+        "ok": True,
+        "running": running,
+        "autostart": manager_autostart_enabled(),
+        "state": state,
+        "task_name": task.get_name() if task is not None else None,
+        "done": done,
+        "cancelled": cancelled,
+        "last_error": error,
+    }
+
+
+async def start_manager_background() -> dict[str, Any]:
+    global manager_bg_task
+    async with manager_control_lock:
+        if manager_bg_task is not None and not manager_bg_task.done():
+            return {**manager_task_status(), "started": False}
+
+        manager_bg_task = asyncio.create_task(start_manager_tasks(), name="mimo-manager")
+        return {**manager_task_status(), "started": True}
+
+
+async def stop_manager_background() -> dict[str, Any]:
+    global manager_bg_task
+    async with manager_control_lock:
+        task = manager_bg_task
+        if task is None:
+            return {**manager_task_status(), "stopped": False}
+
+        if task.done():
+            manager_bg_task = None
+            return {**manager_task_status(), "stopped": False}
+
+        task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=SHUTDOWN_TASK_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ 停止 manager 后台任务超时，任务未在 {SHUTDOWN_TASK_TIMEOUT}s 内退出")
+
+        stopped = task.done()
+        if stopped:
+            manager_bg_task = None
+        return {**manager_task_status(), "stopped": stopped}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global manager_bg_task, metrics_persist_task, sweeper_bg_task, lifecycle_bg_task
-    logger.info("🚀 正在拉起挂后台的 Claw 账号守护线程...")
+    logger.info("🚀 正在初始化后台服务...")
     acquire_single_process_lock()
 
     await asyncio.to_thread(init_metrics_db)
@@ -148,7 +223,10 @@ async def lifespan(app: FastAPI):
         
     await tunnel_supervisor.start()
     sync_bridge_ws_env(tunnel_supervisor.snapshot().get("ws_url"))
-    manager_bg_task = asyncio.create_task(start_manager_tasks(), name="mimo-manager")
+    if manager_autostart_enabled():
+        await start_manager_background()
+    else:
+        logger.info("manager 自动启动已关闭，等待 WebUI/API 手动启动")
     metrics_persist_task = asyncio.create_task(metrics_history_worker(), name="mimo-metrics")
     sweeper_bg_task = asyncio.create_task(sweep_stale_queues(), name="mimo-sweeper") # 启动巡检死神
     lifecycle_bg_task = asyncio.create_task(lifecycle_monitor_worker(), name="mimo-lifecycle")
@@ -344,6 +422,18 @@ async def api_rebuild(request: Request):
     trigger_rebuild(uid or None)
     message = f"账号 {uid} 重建信号已发送" if uid else "滚动重建信号已发送，账号将按并行上限分批重建"
     return JSONResponse(content={"ok": True, "uid": uid or None, "message": message})
+
+@app.get("/api/manager/status")
+async def api_manager_status():
+    return JSONResponse(content=manager_task_status())
+
+@app.post("/api/manager/start")
+async def api_manager_start():
+    return JSONResponse(content=await start_manager_background())
+
+@app.post("/api/manager/stop")
+async def api_manager_stop():
+    return JSONResponse(content=await stop_manager_background())
 
 @app.get("/api/stats")
 async def api_stats():

@@ -878,6 +878,17 @@
             <section id="view-lifecycle" class="view">
                 <div class="section">
                     <div class="section-header">
+                        <h2>Manager 守护任务</h2>
+                        <div class="inline-actions">
+                            <button onclick="loadManagerStatus()">刷新</button>
+                            <button class="primary" id="managerStartBtn" onclick="startManager()">启动</button>
+                            <button class="danger" id="managerStopBtn" onclick="stopManager()">停止</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="managerStatus">加载中...</div>
+                </div>
+                <div class="section">
+                    <div class="section-header">
                         <h2>账号生命周期</h2>
                         <div class="inline-actions">
                             <label class="inline-actions"><input id="abnormalOnly" type="checkbox" style="width:auto; min-height:auto;" onchange="renderLifecycle()"> 只看异常</label>
@@ -1009,6 +1020,7 @@
             session: null,
             stats: null,
             lifecycle: null,
+            manager: null,
             users: [],
             errors: [],
             mapping: {},
@@ -1250,8 +1262,78 @@
             el.innerHTML = renderErrorsTable(errors);
         }
 
+        function managerStateText(value) {
+            const map = {
+                running: '运行中',
+                stopped: '已停止',
+                cancelled: '已停止',
+                finished: '已退出',
+                failed: '异常退出',
+            };
+            return map[value] || value || '未知';
+        }
+
+        async function loadManagerStatus() {
+            state.manager = await fetchJson('/api/manager/status');
+            renderManagerStatus();
+        }
+
+        function renderManagerStatus() {
+            const el = document.getElementById('managerStatus');
+            if (!el) return;
+            const manager = state.manager || {};
+            const running = Boolean(manager.running);
+            const stateType = running ? 'success' : (manager.state === 'failed' ? 'danger' : 'warn');
+            const startBtn = document.getElementById('managerStartBtn');
+            const stopBtn = document.getElementById('managerStopBtn');
+            if (startBtn) startBtn.disabled = running;
+            if (stopBtn) stopBtn.disabled = !running;
+            el.innerHTML = `
+                <div class="metrics-grid" style="grid-template-columns: repeat(3, minmax(150px, 1fr));">
+                    <div class="metric">
+                        <div class="metric-label">当前状态</div>
+                        <div class="metric-value">${badge(managerStateText(manager.state), stateType)}</div>
+                        <div class="metric-note">${escapeHtml(manager.task_name || '-')}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">启动策略</div>
+                        <div class="metric-value">${badge(manager.autostart ? '自动' : '手动', manager.autostart ? 'success' : 'warn')}</div>
+                        <div class="metric-note">manager.autostart</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">任务标记</div>
+                        <div class="metric-value">${running ? 'active' : (manager.done ? 'done' : 'idle')}</div>
+                        <div class="metric-note">${manager.cancelled ? 'cancelled' : 'local task'}</div>
+                    </div>
+                </div>
+                ${manager.last_error ? `<p class="mono danger-text">${escapeHtml(manager.last_error)}</p>` : ''}
+            `;
+        }
+
+        async function startManager() {
+            const data = await fetchJson('/api/manager/start', { method: 'POST' });
+            state.manager = data;
+            renderManagerStatus();
+            showToast(data.started ? 'Manager 已启动' : 'Manager 已在运行');
+            await loadLifecycle(true);
+        }
+
+        async function stopManager() {
+            if (!confirm('确定停止本地 Manager 守护任务？云端实例不会销毁。')) return;
+            const data = await fetchJson('/api/manager/stop', { method: 'POST' });
+            state.manager = data;
+            renderManagerStatus();
+            showToast(data.stopped ? 'Manager 已停止' : 'Manager 未运行');
+        }
+
         async function loadLifecycle(forceRefresh = false) {
-            state.lifecycle = await fetchJson(`/api/lifecycle/status${forceRefresh ? '?refresh=true' : ''}`);
+            const [lifecycle, manager] = await Promise.all([
+                fetchJson(`/api/lifecycle/status${forceRefresh ? '?refresh=true' : ''}`),
+                fetchJson('/api/manager/status'),
+            ]);
+            state.lifecycle = lifecycle;
+            state.manager = manager;
+            renderManagerStatus();
             renderLifecycle();
         }
 

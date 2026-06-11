@@ -67,6 +67,7 @@ FIELDS: dict[str, ConfigField] = {
     "webui.session_ttl_seconds": ConfigField("webui.session_ttl_seconds", "MIMO_WEBUI_SESSION_TTL_SECONDS", 43200, "int", label="会话有效期", group="WebUI 登录"),
     "webui.cookie_secure": ConfigField("webui.cookie_secure", "MIMO_WEBUI_COOKIE_SECURE", False, "bool", label="Cookie Secure", group="WebUI 登录"),
     "api.openai_key": ConfigField("api.openai_key", "MIMO_RELAY_OPENAI_KEY", "", "str", sensitive=True, label="OpenAI 兼容 API Key", group="API 鉴权"),
+    "manager.autostart": ConfigField("manager.autostart", "MIMO_MANAGER_AUTOSTART", True, "bool", requires_restart=True, label="Manager 自动启动", group="生命周期策略"),
     "lifecycle.monitor_interval_seconds": ConfigField("lifecycle.monitor_interval_seconds", "MIMO_LIFECYCLE_MONITOR_INTERVAL_SECONDS", 30, "int", label="监测间隔", group="生命周期策略"),
     "lifecycle.node_stale_seconds": ConfigField("lifecycle.node_stale_seconds", "MIMO_LIFECYCLE_NODE_STALE_SECONDS", 90, "int", label="节点失联阈值", group="生命周期策略"),
     "lifecycle.auto_rebuild": ConfigField("lifecycle.auto_rebuild", "MIMO_LIFECYCLE_AUTO_REBUILD", False, "bool", label="异常自动重建", group="生命周期策略"),
