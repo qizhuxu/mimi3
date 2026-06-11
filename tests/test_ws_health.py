@@ -213,6 +213,81 @@ class WebSocketHealthTests(unittest.TestCase):
             logging.getLogger("Acc-test-uid-remote").disabled = False
             manager_module.fetch_remote_gateway_nodes = original
 
+    def test_manager_blocks_rebuild_while_local_bridge_is_not_stale(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+        from mimo2api.gateway_state import state
+
+        now = time.time()
+        state.node_to_ws["uid-local"] = object()
+        state.node_last_seen_at["uid-local"] = now - 20
+        logging.getLogger("Acc-test-uid-local").disabled = True
+        try:
+            manager = manager_module.AccountManager("uid-local", {"userId": "uid-local", "name": "test"})
+            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-local", now=now, node_stale_seconds=90)))
+
+            state.node_last_seen_at["uid-local"] = now - 91
+            self.assertTrue(asyncio.run(manager._bridge_rebuild_allowed("uid-local", now=now, node_stale_seconds=90)))
+        finally:
+            logging.getLogger("Acc-test-uid-local").disabled = False
+
+    def test_manager_blocks_rebuild_while_remote_bridge_is_not_stale(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+        from mimo2api.gateway_health import NodePresence
+
+        now = time.time()
+        remote_last_seen = now - 20
+
+        async def fake_fetch_remote_gateway_nodes():
+            return {
+                "uid-remote": NodePresence(
+                    uid="uid-remote",
+                    source="remote",
+                    last_seen_at=remote_last_seen,
+                    source_url="https://gateway.example.com/api/stats",
+                )
+            }, {"url": "https://gateway.example.com/api/stats", "error": ""}
+
+        original = manager_module.fetch_remote_gateway_nodes
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        logging.getLogger("Acc-test-uid-remote").disabled = True
+        try:
+            manager = manager_module.AccountManager("uid-remote", {"userId": "uid-remote", "name": "test"})
+            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-remote", now=now, node_stale_seconds=90)))
+
+            remote_last_seen = now - 91
+            self.assertTrue(asyncio.run(manager._bridge_rebuild_allowed("uid-remote", now=now, node_stale_seconds=90)))
+        finally:
+            logging.getLogger("Acc-test-uid-remote").disabled = False
+            manager_module.fetch_remote_gateway_nodes = original
+
+    def test_manager_blocks_rebuild_when_remote_gateway_identity_is_ambiguous(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+
+        async def fake_fetch_remote_gateway_nodes():
+            return {}, {
+                "url": "https://gateway.example.com/api/stats",
+                "error": "",
+                "active_clients": "4",
+                "identified_nodes": "0",
+                "unknown_nodes": "4",
+            }
+
+        original = manager_module.fetch_remote_gateway_nodes
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        logging.getLogger("Acc-test-uid-unknown").disabled = True
+        try:
+            manager = manager_module.AccountManager("uid-unknown", {"userId": "uid-unknown", "name": "test"})
+            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-unknown", now=time.time(), node_stale_seconds=90)))
+        finally:
+            logging.getLogger("Acc-test-uid-unknown").disabled = False
+            manager_module.fetch_remote_gateway_nodes = original
+
     def test_manager_skips_injection_when_remote_gateway_has_only_unknown_nodes(self):
         import asyncio
         import logging

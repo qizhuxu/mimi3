@@ -60,6 +60,7 @@ FIELDS: dict[str, ConfigField] = {
     "server.port": ConfigField("server.port", "SERVER_PORT", _default_server_port, "int", requires_restart=True, label="监听端口", group="访问与网关"),
     "gateway.ws_tunnel_url": ConfigField("gateway.ws_tunnel_url", "WS_TUNNEL_URL", _default_ws_url, "str", label="Bridge WebSocket 地址", group="访问与网关"),
     "gateway.public_base_url": ConfigField("gateway.public_base_url", "MIMO_PUBLIC_BASE_URL", "", "str", label="公网 HTTP 地址", group="访问与网关"),
+    "gateway.stats_proxy": ConfigField("gateway.stats_proxy", "MIMO_GATEWAY_STATS_PROXY", "", "str", sensitive=True, label="网关状态代理", group="访问与网关"),
     "webui.username": ConfigField("webui.username", "MIMO_WEBUI_USERNAME", "admin", "str", label="WebUI 用户名", group="WebUI 登录"),
     "webui.password": ConfigField("webui.password", "MIMO_WEBUI_PASSWORD", "", "str", sensitive=True, label="WebUI 密码", group="WebUI 登录"),
     "webui.secret": ConfigField("webui.secret", "MIMO_WEBUI_SECRET", "", "str", sensitive=True, label="会话签名密钥", group="WebUI 登录"),

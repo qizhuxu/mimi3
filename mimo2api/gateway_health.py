@@ -7,9 +7,9 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 try:
-    from .runtime_config import effective_ws_url
+    from .runtime_config import effective_ws_url, get_config_value
 except ImportError:
-    from runtime_config import effective_ws_url
+    from runtime_config import effective_ws_url, get_config_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +101,11 @@ async def fetch_remote_gateway_nodes() -> tuple[dict[str, NodePresence], dict[st
         return {}, meta
 
     try:
-        async with httpx.AsyncClient(timeout=4) as client:
+        client_kwargs: dict[str, Any] = {"timeout": 4}
+        stats_proxy = str(get_config_value("gateway.stats_proxy", "") or "").strip()
+        if stats_proxy:
+            client_kwargs["proxy"] = stats_proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
             response = await client.get(stats_url)
         response.raise_for_status()
         payload = response.json()
