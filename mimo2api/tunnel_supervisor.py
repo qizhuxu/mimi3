@@ -9,6 +9,7 @@ from .runtime_config import (
     ACTIVE_TUNNEL_WS_ENV,
     effective_public_base_url,
     get_config_value,
+    is_tunnel_available,
     sync_bridge_ws_env,
     update_runtime_config,
 )
@@ -29,8 +30,19 @@ class TunnelSupervisor:
         self.started_at: float | None = None
         self.restart_count = 0
         self.last_error = ""
+        self.disabled_reason = ""
 
     def _current_config(self) -> dict[str, Any]:
+        if not is_tunnel_available():
+            return {
+                "mode": "none",
+                "bin": "cloudflared",
+                "token": "",
+                "hostname": "",
+                "port": int(get_config_value("server.port", 8000)),
+                "available": False,
+                "disabled_reason": "hf_space",
+            }
         mode = str(get_config_value("tunnel.mode", "none") or "none").strip()
         if mode not in {"none", "cloudflare_quick", "cloudflare_named"}:
             mode = "none"
@@ -40,6 +52,8 @@ class TunnelSupervisor:
             "token": str(get_config_value("tunnel.cloudflare_tunnel_token", "") or "").strip(),
             "hostname": str(get_config_value("tunnel.cloudflare_public_hostname", "") or "").strip().strip("/"),
             "port": int(get_config_value("server.port", 8000)),
+            "available": True,
+            "disabled_reason": "",
         }
 
     def _set_disabled_fallback(self) -> None:
@@ -53,6 +67,7 @@ class TunnelSupervisor:
         self.mode = cfg["mode"]
         self.cloudflared_bin = cfg["bin"]
         self.last_error = ""
+        self.disabled_reason = cfg["disabled_reason"]
 
         if self.mode == "none":
             self.status = "disabled"
@@ -194,6 +209,12 @@ class TunnelSupervisor:
             "gateway.public_base_url",
         }
         filtered = {key: value for key, value in updates.items() if key in allowed_keys}
+        if not is_tunnel_available():
+            filtered = {
+                key: value
+                for key, value in filtered.items()
+                if not key.startswith("tunnel.")
+            }
         result = update_runtime_config(filtered)
         await self.restart()
         return result
@@ -201,13 +222,15 @@ class TunnelSupervisor:
     def snapshot(self) -> dict[str, Any]:
         cfg = self._current_config()
         running_pid = self.process.pid if self.process and self.process.returncode is None else None
-        enabled = cfg["mode"] != "none"
+        available = bool(cfg["available"])
+        enabled = available and cfg["mode"] != "none"
         token_configured = bool(cfg["token"])
         hostname = cfg["hostname"]
         manual_ws_locked = "WS_TUNNEL_URL" in os.environ
         effective_ws = sync_bridge_ws_env() if manual_ws_locked else (self.ws_url or sync_bridge_ws_env())
         return {
             "mode": cfg["mode"],
+            "available": available,
             "enabled": enabled,
             "status": self.status,
             "public_base_url": self.public_base_url or effective_public_base_url(),
@@ -221,6 +244,7 @@ class TunnelSupervisor:
             "token_configured": token_configured,
             "hostname": hostname,
             "manual_ws_locked": manual_ws_locked,
+            "disabled_reason": cfg["disabled_reason"],
         }
 
 

@@ -863,7 +863,7 @@
                 <button data-view="accounts">账号管理</button>
                 <button data-view="mapping">模型映射</button>
                 <button data-view="errors">错误日志</button>
-                <button data-view="tunnel">网关出口</button>
+                <button data-view="tunnel" data-feature="tunnel">网关出口</button>
                 <button data-view="config">系统配置</button>
             </nav>
         </aside>
@@ -994,7 +994,7 @@
                 </div>
             </section>
 
-            <section id="view-tunnel" class="view">
+            <section id="view-tunnel" class="view" data-feature="tunnel">
                 <div class="split">
                     <div class="section">
                         <div class="section-header"><h2>隧道配置</h2></div>
@@ -1257,6 +1257,10 @@
         }
 
         function switchView(view) {
+            if (view === 'tunnel' && !isTunnelAvailable()) {
+                showToast('当前部署模式已禁用内置隧道', 'error');
+                return;
+            }
             state.activeView = view;
             document.querySelectorAll('.nav button').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
             document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
@@ -1271,7 +1275,7 @@
             if (view === 'accounts') return loadUsers();
             if (view === 'mapping') return loadMappings();
             if (view === 'errors') return loadLogView();
-            if (view === 'tunnel') return Promise.all([loadConfig(), loadTunnel()]);
+            if (view === 'tunnel' && isTunnelAvailable()) return Promise.all([loadConfig(), loadTunnel()]);
             if (view === 'config') return loadConfig();
         }
 
@@ -1799,6 +1803,7 @@
 
         async function loadConfig() {
             state.config = await fetchJson('/api/config');
+            applyFeatureVisibility();
             renderConfig();
             applyTunnelFormFromConfig();
         }
@@ -1812,6 +1817,24 @@
 
         function fieldMeta(key) {
             return (state.config || {})[key] || {};
+        }
+
+        function isTunnelAvailable() {
+            const meta = (state.config || {})._meta || {};
+            return meta.features?.tunnel !== false;
+        }
+
+        function applyFeatureVisibility() {
+            const tunnelAvailable = isTunnelAvailable();
+            document.querySelectorAll('[data-feature="tunnel"]').forEach(el => {
+                el.classList.toggle('hidden', !tunnelAvailable);
+            });
+            if (!tunnelAvailable && state.activeView === 'tunnel') {
+                state.activeView = 'overview';
+                document.querySelectorAll('.nav button').forEach(btn => btn.classList.toggle('active', btn.dataset.view === 'overview'));
+                document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === 'view-overview'));
+                document.getElementById('viewTitle').textContent = titles.overview;
+            }
         }
 
         function applyTunnelFormFromConfig() {
@@ -1829,6 +1852,7 @@
             const groups = {};
             Object.entries(state.config).forEach(([key, item]) => {
                 if (key.startsWith('_')) return;
+                if (item.hidden) return;
                 const group = item.group || '其他';
                 groups[group] ||= [];
                 groups[group].push([key, item]);
@@ -1929,7 +1953,7 @@
             });
             showToast('配置已保存');
             await loadConfig();
-            await loadTunnel();
+            if (isTunnelAvailable()) await loadTunnel();
         }
 
         async function saveTunnelConfig() {
@@ -1969,8 +1993,8 @@
                 loadUsers(),
                 loadMappings(),
                 loadConfig(),
-                loadTunnel(),
             ]);
+            if (isTunnelAvailable()) await loadTunnel();
         }
 
         function startPolling() {
@@ -1983,7 +2007,7 @@
                 const tasks = [loadOverview()];
                 if (state.activeView === 'accounts') tasks.push(loadUsers());
                 if (state.activeView === 'lifecycle') tasks.push(loadLifecycle(false));
-                if (state.activeView === 'tunnel') tasks.push(loadTunnel());
+                if (state.activeView === 'tunnel' && isTunnelAvailable()) tasks.push(loadTunnel());
                 Promise.allSettled(tasks).finally(() => {
                     refreshRuntimeCountdowns();
                     state.pollInFlight = false;

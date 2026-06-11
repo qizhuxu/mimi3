@@ -11,8 +11,10 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_RUNTIME_CONFIG_PATH = ROOT_DIR / "data" / "runtime_config.json"
 RUNTIME_CONFIG_PATH_ENV = "MIMO_RUNTIME_CONFIG_PATH"
 CONFIG_SOURCE_ENV = "MIMO_CONFIG_SOURCE"
+DEPLOY_TARGET_ENV = "MIMO_DEPLOY_TARGET"
 ACTIVE_TUNNEL_WS_ENV = "MIMO_TUNNEL_ACTIVE_WS_URL"
 BRIDGE_WS_ENV = "MIMO2API_WS_URL"
+HF_SPACE_TARGETS = {"hf", "hf_space", "huggingface", "huggingface_space"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,11 +43,28 @@ def _config_source_policy() -> str:
     return value if value in {"auto", "env", "ui"} else "auto"
 
 
+def deploy_target() -> str:
+    value = os.getenv(DEPLOY_TARGET_ENV, "").strip().lower().replace("-", "_")
+    if value in HF_SPACE_TARGETS or (not value and os.getenv("SPACE_ID")):
+        return "hf_space"
+    return value or "standard"
+
+
+def is_hf_space_deploy() -> bool:
+    return deploy_target() == "hf_space"
+
+
+def is_tunnel_available() -> bool:
+    return not is_hf_space_deploy()
+
+
 def _default_server_host() -> str:
     return "0.0.0.0"
 
 
 def _default_server_port() -> int:
+    if is_hf_space_deploy():
+        return 7860
     return 8000
 
 
@@ -126,6 +145,22 @@ def _field_default(field: ConfigField) -> Any:
     return _coerce_value(field, default)
 
 
+def _deployment_controls_field(field: ConfigField) -> bool:
+    return is_hf_space_deploy() and field.key.startswith("tunnel.")
+
+
+def _deployment_hidden_field(field: ConfigField) -> bool:
+    return _deployment_controls_field(field)
+
+
+def _deployment_source_and_value(field: ConfigField) -> tuple[str, Any] | None:
+    if not _deployment_controls_field(field):
+        return None
+    if field.key == "tunnel.mode":
+        return "deployment", "none"
+    return "deployment", _field_default(field)
+
+
 def _field_from_env(field: ConfigField) -> Any:
     return _coerce_value(field, os.getenv(field.env, ""))
 
@@ -135,6 +170,10 @@ def _field_from_runtime(field: ConfigField) -> Any:
 
 
 def _effective_source_and_value(field: ConfigField) -> tuple[str, Any]:
+    deployment_value = _deployment_source_and_value(field)
+    if deployment_value is not None:
+        return deployment_value
+
     policy = _config_source_policy()
     env_set = field.env in os.environ
     runtime_data = _raw_runtime_config()
@@ -160,6 +199,8 @@ def _effective_source_and_value(field: ConfigField) -> tuple[str, Any]:
 
 
 def is_field_editable(field: ConfigField) -> bool:
+    if _deployment_controls_field(field):
+        return False
     policy = _config_source_policy()
     if policy == "env":
         return False
@@ -181,6 +222,10 @@ def get_config_metadata() -> dict[str, Any]:
         "_meta": {
             "config_source": _config_source_policy(),
             "config_path": str(_runtime_config_path()),
+            "deploy_target": deploy_target(),
+            "features": {
+                "tunnel": is_tunnel_available(),
+            },
         }
     }
     for key, field in FIELDS.items():
@@ -194,6 +239,7 @@ def get_config_metadata() -> dict[str, Any]:
             "label": field.label,
             "group": field.group,
             "env": field.env,
+            "hidden": _deployment_hidden_field(field),
         }
         if field.sensitive:
             item["configured"] = bool(value)

@@ -3,8 +3,9 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    MIMO_DEPLOY_TARGET=hf_space \
     SERVER_HOST=0.0.0.0 \
-    SERVER_PORT=8000 \
+    SERVER_PORT=7860 \
     MIMO_METRICS_DB_PATH=/app/data/gateway_metrics.db \
     MIMO_METRICS_SNAPSHOT_PATH=/app/data/gateway_snapshot.json \
     MIMO_PROCESS_LOCK_PATH=/app/data/mimo2api.lock
@@ -26,10 +27,10 @@ RUN mkdir -p /app/users /app/logs /app/data \
     && chmod +x /app/docker-entrypoint.sh \
     && chown -R app:app /app
 
-EXPOSE 8000
+EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import os, urllib.request; port=os.getenv('SERVER_PORT', '8000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/api/auth/session', timeout=3).read()"
+    CMD python -c "import os, urllib.request; port=os.getenv('SERVER_PORT', '7860'); urllib.request.urlopen(f'http://127.0.0.1:{port}/api/auth/session', timeout=3).read()"
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "main.py"]

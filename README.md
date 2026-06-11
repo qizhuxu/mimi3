@@ -6,7 +6,7 @@
 
 - OpenAI 兼容 API 中转（支持 `/v1/chat/completions`, `/v1/responses`, `/anthropic/v1/messages`）
 - Web 控制面板（实时监控、日志查看）
-- 生命周期监测、配置中心和 Cloudflare Tunnel 状态管理
+- 生命周期监测、配置中心；HF Space 模式下禁用内置 Cloudflare Tunnel
 - 网页对话 API 反代（按账号 UID 代理 AI Studio Web chat 相关接口）
 - 多账号轮询负载均衡
 - 流式响应支持
@@ -31,7 +31,9 @@ cp env.example .env
 docker compose up -d --build
 ```
 
-默认服务端口为 `8000`，可在 `.env` 中通过 `SERVER_PORT` 调整。
+本分支默认服务端口为 `7860`，可在 `.env` 中通过 `SERVER_PORT` 调整。
+
+HuggingFace Space 专用分支使用 `mimi3:hf_latest` 镜像标签，并强制禁用内置 Cloudflare Tunnel。部署细节见 [HUGGINGFACE_SPACE.md](HUGGINGFACE_SPACE.md)。
 
 Docker Compose 会挂载以下本地目录：
 
@@ -61,12 +63,14 @@ MIMO_LOG_LEVEL=DEBUG
 WS 节点连通性由网关侧维护：bridge 连接 `/ws?node=<uid>` 后写入 `node_to_ws`，并会在 WebSocket 首包和 heartbeat 中携带 `node=<uid>`，避免外网网关丢失 query 后只能看到 Unknown 节点。manager 注入成功判据是对应 UID 出现在本地或外网网关 `/api/stats` 中；如果外网网关只能报告 Unknown 节点，生命周期会显示“外网节点未识别”，manager 会停止重复注入以避免节点数膨胀。bridge 还会周期性发送 heartbeat，网关收到任意消息都会刷新 `node_last_seen_at`；生命周期页根据 `MIMO_LIFECYCLE_NODE_STALE_SECONDS` 判定 stale。
 
 ## 前置条件
-一台拥有公网 ip 的机器，或者本机进行内网穿透。此为必备配置选项
+
+HuggingFace Space 会提供公网 HTTPS 入口，Claw 节点需要使用 Space 域名回连网关 WebSocket。此为必备配置项：
+
 ```bash
-WS_TUNNEL_URL=ws://your-domain.com:8000/ws
+WS_TUNNEL_URL=wss://your-space-host/ws
 ```
 
-也可以在 Web 控制台的“网关出口”中配置内置 Cloudflare Tunnel。`WS_TUNNEL_URL` 如果通过环境变量显式设置，会作为手动地址锁定；运行时配置会写入 `data/runtime_config.json`，不会修改 `.env`。
+本分支在 `MIMO_DEPLOY_TARGET=hf_space` 下会隐藏 Web 控制台的“网关出口”入口，并强制禁用内置 Cloudflare Tunnel。`WS_TUNNEL_URL` 如果通过环境变量显式设置，会作为手动地址锁定；运行时配置会写入 `data/runtime_config.json`，不会修改 `.env`。
 
 Web 控制台包含：
 
@@ -74,7 +78,7 @@ Web 控制台包含：
 - 生命周期：账号云端状态、bridge 在线状态、冷却与异常判断
 - 账号管理：导入和删除 `users/` 运行目录中的账号凭证
 - 模型映射：维护 `model_mapping.json`
-- 网关出口：Cloudflare 临时/固定隧道状态和配置
+- 网关出口：HF Space 模式下隐藏，避免在容器内启动 Cloudflare Tunnel
 - 系统配置：WebUI、API 鉴权、生命周期策略等运行时配置
 
 ## 网页对话反代

@@ -2,14 +2,14 @@ services:
   mimi3:
     build:
       context: .
-    image: mimi3:latest
+    image: mimi3:hf_latest
     container_name: mimi3
     init: true
     restart: unless-stopped
     env_file:
       - .env
     ports:
-      - "${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
+      - "${SERVER_PORT:-7860}:${SERVER_PORT:-7860}"
     volumes:
       - ./users:/app/users
       - ./logs:/app/logs
