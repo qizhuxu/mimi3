@@ -302,7 +302,7 @@ async def maybe_trigger_auto_rebuild(snapshot: dict[str, Any]) -> None:
         if int(row.get("consecutive_failures", 0) or 0) >= threshold:
             from .manager import trigger_rebuild
 
-            trigger_rebuild()
+            trigger_rebuild(str(row.get("uid") or "") or None)
             _auto_rebuild_last_at = now
             return
 

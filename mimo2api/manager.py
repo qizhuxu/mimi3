@@ -24,19 +24,53 @@ import websockets
 try:
     from .gateway_health import fetch_remote_gateway_nodes
     from .logging_utils import compact_text, log_event
+    from .runtime_config import get_config_value
 except ImportError:
     from gateway_health import fetch_remote_gateway_nodes
     from logging_utils import compact_text, log_event
+    from runtime_config import get_config_value
 
-# 手动重建信号
+# 手动/自动重建信号；全局信号仅作兼容，常规路径使用分账号事件。
 rebuild_event = asyncio.Event()
+_rebuild_events: dict[str, asyncio.Event] = {}
+_known_manager_uids: set[str] = set()
+_rebuild_condition = asyncio.Condition()
+_active_rebuilds = 0
 
-async def interruptible_sleep(seconds: int):
-    """可被 rebuild_event 打断的 sleep"""
-    try:
-        await asyncio.wait_for(rebuild_event.wait(), timeout=seconds)
-    except asyncio.TimeoutError:
-        pass
+
+def _rebuild_event_for(uid: str) -> asyncio.Event:
+    key = str(uid)
+    event = _rebuild_events.get(key)
+    if event is None:
+        event = asyncio.Event()
+        _rebuild_events[key] = event
+    return event
+
+
+def _is_rebuild_requested(uid: str) -> bool:
+    return rebuild_event.is_set() or _rebuild_event_for(uid).is_set()
+
+
+def _consume_rebuild_request(uid: str) -> bool:
+    event = _rebuild_event_for(uid)
+    if event.is_set():
+        event.clear()
+        return True
+    return rebuild_event.is_set()
+
+
+async def interruptible_sleep(seconds: int, uid: str | None = None) -> bool:
+    """等待指定秒数；若收到对应账号重建信号则提前返回 True。"""
+    deadline = time.monotonic() + max(0, seconds)
+    while True:
+        if uid is not None and _is_rebuild_requested(uid):
+            return True
+        if uid is None and rebuild_event.is_set():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        await asyncio.sleep(min(5.0, remaining))
 
 
 async def cancel_and_wait(tasks: list[asyncio.Task], timeout: float = 5.0) -> None:
@@ -52,9 +86,129 @@ async def cancel_and_wait(tasks: list[asyncio.Task], timeout: float = 5.0) -> No
     except asyncio.TimeoutError:
         logger.warning(f"取消子任务超时，仍有 {sum(not task.done() for task in pending)} 个任务未退出")
 
-def trigger_rebuild():
-    """供外部调用，触发所有账号强制重建"""
-    rebuild_event.set()
+def trigger_rebuild(uid: str | None = None):
+    """触发重建；传入 uid 时只重建指定账号，未传入时按账号滚动重建。"""
+    if uid:
+        _rebuild_event_for(str(uid)).set()
+        logger.info(f"已触发账号 {uid} 的重建信号")
+        return
+    if _known_manager_uids:
+        for known_uid in list(_known_manager_uids):
+            _rebuild_event_for(known_uid).set()
+        logger.info(f"已触发 {len(_known_manager_uids)} 个账号的滚动重建信号")
+    else:
+        rebuild_event.set()
+        logger.info("已触发兼容全局重建信号")
+
+
+def clear_global_rebuild_if_drained() -> None:
+    if rebuild_event.is_set() and _known_manager_uids:
+        rebuild_event.clear()
+
+
+def current_available_nodes(exclude_uid: str | None = None) -> int:
+    try:
+        from mimo2api.gateway_state import state as gw_state
+    except Exception:
+        return 0
+    now = time.time()
+    total = 0
+    for node_id, ws in list(gw_state.node_to_ws.items()):
+        if exclude_uid is not None and str(node_id) == str(exclude_uid):
+            continue
+        if gw_state.client_cooldowns.get(id(ws), 0) > now:
+            continue
+        total += 1
+    return total
+
+
+def _config_int(key: str, default: int) -> int:
+    value = get_config_value(key, default)
+    if value is None or value == "":
+        value = default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def rebuild_runtime_limits() -> tuple[int, int, int]:
+    max_parallel = max(1, _config_int("lifecycle.max_parallel_rebuilds", 1))
+    min_available = max(0, _config_int("lifecycle.min_available_nodes", 1))
+    wait_seconds = max(5, _config_int("lifecycle.rebuild_wait_seconds", 30))
+    return max_parallel, min_available, wait_seconds
+
+
+def lifecycle_start_timing(total_users: int) -> tuple[list[float], list[int]]:
+    """Return initial start delays and first-round lifetime offsets for accounts."""
+    if total_users <= 0:
+        return [], []
+    window = max(0, _config_int("lifecycle.initial_stagger_window_seconds", 1800))
+    fast_count = max(1, _config_int("lifecycle.fast_start_count", 1))
+    fast_count = min(fast_count, total_users)
+    delays: list[float] = []
+    remaining = max(0, total_users - fast_count)
+    step = (window / remaining) if remaining else 0
+    for index in range(total_users):
+        if index < fast_count:
+            delays.append(float(index * 30))
+        else:
+            delays.append(float(round((index - fast_count + 1) * step, 3)))
+    offsets = [int(round(delay)) for delay in delays]
+    return delays, offsets
+
+
+class RebuildLease:
+    def __init__(self, uid: str, logger_obj: logging.Logger, require_waterline: bool = False):
+        self.uid = str(uid)
+        self.logger = logger_obj
+        self.require_waterline = require_waterline
+        self.acquired = False
+
+    async def __aenter__(self):
+        global _active_rebuilds
+        while True:
+            max_parallel, min_available, wait_seconds = rebuild_runtime_limits()
+            async with _rebuild_condition:
+                available_nodes = current_available_nodes(exclude_uid=self.uid)
+                waterline_ok = (not self.require_waterline) or available_nodes >= min_available
+                if _active_rebuilds < max_parallel and waterline_ok:
+                    _active_rebuilds += 1
+                    self.acquired = True
+                    log_event(
+                        self.logger,
+                        logging.INFO,
+                        "lifecycle.rebuild.slot_acquired",
+                        uid=self.uid,
+                        active_rebuilds=_active_rebuilds,
+                        max_parallel=max_parallel,
+                        available_nodes=available_nodes,
+                        min_available_nodes=min_available,
+                        require_waterline=self.require_waterline,
+                    )
+                    return self
+            log_event(
+                self.logger,
+                logging.INFO,
+                "lifecycle.rebuild.wait",
+                uid=self.uid,
+                active_rebuilds=_active_rebuilds,
+                max_parallel=max_parallel,
+                available_nodes=current_available_nodes(exclude_uid=self.uid),
+                min_available_nodes=min_available,
+                require_waterline=self.require_waterline,
+                wait_seconds=wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        global _active_rebuilds
+        if self.acquired:
+            async with _rebuild_condition:
+                _active_rebuilds = max(0, _active_rebuilds - 1)
+                _rebuild_condition.notify_all()
+            log_event(self.logger, logging.INFO, "lifecycle.rebuild.slot_released", uid=self.uid, active_rebuilds=_active_rebuilds)
+        return False
 
 # 配置日志格式
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(name)s] - %(levelname)s - %(message)s")
@@ -986,22 +1140,24 @@ async def start_manager_tasks():
     logger.info(f"共通过 users/ 扫描并成功重载入 {len(users)} 个授权用户预设账号。")
     tasks = []
     
-    # 为了避免所有账号同时进入强制销毁重建期导致空窗，引入 stagger 错峰分配策略
+    # 为了避免所有账号同时进入强制销毁重建期导致空窗，引入 30 分钟默认错峰分配策略
     total_users = len(users)
-    max_stagger_window = 50 * 60 # 分摊在 50 分钟内
-    stagger_step = max_stagger_window // total_users if total_users > 1 else 0
+    initial_delays, stagger_offsets = lifecycle_start_timing(total_users)
+    _known_manager_uids.clear()
+    _known_manager_uids.update(str(uid) for uid in users.keys())
 
     async def _delayed_start(mgr, init_sleep):
         if init_sleep > 0:
-            await asyncio.sleep(init_sleep)
+            await interruptible_sleep(int(init_sleep), uid=mgr.uid)
         await mgr.run_lifecycle()
 
     try:
         for i, (uid, user_info) in enumerate(users.items()):
-            stagger_offset = i * stagger_step
+            stagger_offset = stagger_offsets[i]
             manager = AccountManager(uid, user_info, stagger_offset=stagger_offset)
-            # 初始启动小幅错开 3 秒，避免并发导致 API 短期拒绝
-            t = asyncio.create_task(_delayed_start(manager, i * 3.0), name=f"account-manager-{uid}")
+            init_sleep = initial_delays[i]
+            logger.info(f"账号 {uid} 初始错峰启动延迟 {init_sleep:.0f} 秒，首轮寿命偏移 {stagger_offset} 秒")
+            t = asyncio.create_task(_delayed_start(manager, init_sleep), name=f"account-manager-{uid}")
             tasks.append(t)
 
         await asyncio.gather(*tasks, return_exceptions=True)
