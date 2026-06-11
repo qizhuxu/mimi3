@@ -29,6 +29,7 @@ MODEL_MAPPING_FILE = Path(__file__).parent.parent / "model_mapping.json"
 # 引入 Manager 长驻协程任务
 from .manager import start_manager_tasks, trigger_rebuild
 from .lifecycle_monitor import build_lifecycle_snapshot, lifecycle_monitor_worker, refresh_lifecycle_once
+from .log_reader import DEFAULT_LOGS_DIR, list_log_files, read_log_file
 from .logging_utils import apply_library_log_levels, parse_bool, resolve_log_level
 from .runtime_config import get_config_metadata, get_config_value, reload_runtime_config, sync_bridge_ws_env, update_runtime_config
 from .tunnel_supervisor import tunnel_supervisor
@@ -513,6 +514,27 @@ async def api_errors(limit: int = 50):
     errors = list(state.recent_errors)[-limit:]
     errors.reverse()  # 最新的在前
     return JSONResponse(content={"count": len(errors), "errors": errors})
+
+@app.get("/api/logs/files")
+async def api_log_files():
+    return JSONResponse(content=list_log_files(logs_dir=DEFAULT_LOGS_DIR))
+
+@app.get("/api/logs/read")
+async def api_log_read(file: str = "gateway.log", limit: int = 200, level: str = "", keyword: str = "", filter: str = ""):
+    try:
+        payload = await asyncio.to_thread(
+            read_log_file,
+            logs_dir=DEFAULT_LOGS_DIR,
+            filename=file,
+            limit=limit,
+            level=level,
+            keyword=keyword or filter,
+        )
+        return JSONResponse(content=payload)
+    except FileNotFoundError:
+        return JSONResponse({"detail": "log file not found"}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
 
 def load_model_mapping() -> dict[str, str]:
     if not MODEL_MAPPING_FILE.exists():

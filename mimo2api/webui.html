@@ -295,6 +295,21 @@
             overflow-wrap: anywhere;
         }
 
+        .log-viewer {
+            max-height: 520px;
+            overflow: auto;
+            margin: 0;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #0f1720;
+            color: #d7e3ee;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+        }
+
         .muted { color: var(--muted); }
         .strong { font-weight: 650; }
         .danger-text { color: var(--danger); }
@@ -934,7 +949,27 @@
             <section id="view-errors" class="view">
                 <div class="section">
                     <div class="section-header">
-                        <h2>错误日志</h2>
+                        <h2>运行日志</h2>
+                        <div class="inline-actions">
+                            <select id="logFileSelect" style="width:auto; min-width:150px;" onchange="loadRuntimeLogs(false)"></select>
+                            <select id="logLevelFilter" style="width:auto;" onchange="loadRuntimeLogs(false)">
+                                <option value="">全部级别</option>
+                                <option value="DEBUG">DEBUG</option>
+                                <option value="INFO">INFO</option>
+                                <option value="WARNING">WARNING</option>
+                                <option value="ERROR">ERROR</option>
+                                <option value="CRITICAL">CRITICAL</option>
+                            </select>
+                            <input id="logKeywordInput" style="width:180px;" placeholder="关键词" onkeydown="if(event.key==='Enter') loadRuntimeLogs(false)">
+                            <input id="logLimitInput" type="number" min="1" max="1000" value="200" style="width:92px;">
+                            <button onclick="loadRuntimeLogs(true)">刷新</button>
+                        </div>
+                    </div>
+                    <div class="section-body" id="runtimeLogs">加载中...</div>
+                </div>
+                <div class="section">
+                    <div class="section-header">
+                        <h2>最近错误</h2>
                         <button onclick="loadErrors()">刷新</button>
                     </div>
                     <div class="section-body" id="errorsTable">加载中...</div>
@@ -1004,6 +1039,11 @@
                     <textarea id="cookieInput" placeholder='serviceToken="..."; userId=686621; xiaomichatbot_ph="..."'></textarea>
                     <small>仅写入本机 users/ 运行目录，不会通过用户列表 API 回显敏感值。</small>
                 </div>
+                <label class="inline-actions" style="margin-top:12px;">
+                    <input id="importOverwrite" type="checkbox" style="width:auto; min-height:auto;">
+                    覆盖已存在 UID
+                </label>
+                <div id="importResult" class="metric-note" style="margin-top:10px;"></div>
             </div>
             <div class="modal-actions">
                 <button onclick="closeImportModal()">取消</button>
@@ -1023,6 +1063,8 @@
             manager: null,
             users: [],
             errors: [],
+            logFiles: [],
+            runtimeLog: null,
             mapping: {},
             config: null,
             tunnel: null,
@@ -1209,7 +1251,7 @@
             if (view === 'lifecycle') return loadLifecycle(false);
             if (view === 'accounts') return loadUsers();
             if (view === 'mapping') return loadMappings();
-            if (view === 'errors') return loadErrors();
+            if (view === 'errors') return loadLogView();
             if (view === 'tunnel') return Promise.all([loadConfig(), loadTunnel()]);
             if (view === 'config') return loadConfig();
         }
@@ -1457,6 +1499,8 @@
 
         function openImportModal() {
             document.getElementById('cookieInput').value = '';
+            document.getElementById('importOverwrite').checked = false;
+            document.getElementById('importResult').textContent = '';
             document.getElementById('importModal').classList.add('active');
         }
 
@@ -1467,13 +1511,41 @@
         async function submitImport() {
             const rawText = document.getElementById('cookieInput').value;
             if (!rawText.trim()) return showToast('输入不能为空', 'error');
-            const data = await fetchJson('/api/users/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ raw_text: rawText }),
-            });
-            closeImportModal();
-            showToast(`已导入 ${data.userId}`);
+            const overwrite = Boolean(document.getElementById('importOverwrite')?.checked);
+            let parsedJson = null;
+            try {
+                parsedJson = JSON.parse(rawText);
+            } catch (err) {
+                parsedJson = null;
+            }
+
+            if (parsedJson !== null) {
+                const payload = Array.isArray(parsedJson)
+                    ? (overwrite ? { overwrite, users: parsedJson } : parsedJson)
+                    : { ...parsedJson, ...(overwrite ? { overwrite } : {}) };
+                const data = await fetchJson('/api/users/batch-import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const failures = (data.failures || []).map(item =>
+                    `${item.userId || item.index}: ${item.reason}`
+                ).join('\n');
+                document.getElementById('importResult').innerHTML = `
+                    <div>成功 ${fmtNumber(data.success_count)}，失败 ${fmtNumber(data.failure_count)}</div>
+                    ${failures ? `<pre class="mono danger-text">${escapeHtml(failures)}</pre>` : ''}
+                `;
+                showToast(`批量导入完成：成功 ${data.success_count}，失败 ${data.failure_count}`, data.failure_count ? 'error' : 'success');
+                if (!data.failure_count) closeImportModal();
+            } else {
+                const data = await fetchJson('/api/users/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw_text: rawText }),
+                });
+                closeImportModal();
+                showToast(`已导入 ${data.userId}`);
+            }
             await loadUsers();
         }
 
@@ -1525,6 +1597,69 @@
             });
             showToast('模型映射已保存');
             renderMappings();
+        }
+
+        async function loadLogView() {
+            await Promise.all([loadErrors(), loadRuntimeLogs(true)]);
+        }
+
+        async function loadLogFiles() {
+            const data = await fetchJson('/api/logs/files');
+            state.logFiles = data.files || [];
+            const select = document.getElementById('logFileSelect');
+            if (!select) return data;
+            const current = select.value || data.default_file || '';
+            select.innerHTML = state.logFiles.map(file => `
+                <option value="${escapeHtml(file.name)}" ${file.name === current ? 'selected' : ''}>
+                    ${escapeHtml(file.name)}
+                </option>
+            `).join('');
+            if (current && state.logFiles.some(file => file.name === current)) {
+                select.value = current;
+            } else if (data.default_file) {
+                select.value = data.default_file;
+            }
+            return data;
+        }
+
+        async function loadRuntimeLogs(refreshFiles = false) {
+            const target = document.getElementById('runtimeLogs');
+            if (!target) return;
+            try {
+                if (refreshFiles || !state.logFiles.length) await loadLogFiles();
+                const file = document.getElementById('logFileSelect')?.value || '';
+                if (!file) {
+                    target.innerHTML = '<div class="empty">暂无可读取日志文件</div>';
+                    return;
+                }
+                const params = new URLSearchParams({
+                    file,
+                    level: document.getElementById('logLevelFilter')?.value || '',
+                    keyword: document.getElementById('logKeywordInput')?.value || '',
+                    limit: document.getElementById('logLimitInput')?.value || '200',
+                });
+                state.runtimeLog = await fetchJson(`/api/logs/read?${params.toString()}`);
+                renderRuntimeLogs();
+            } catch (err) {
+                target.innerHTML = `<div class="empty danger-text">${escapeHtml(err.message || '读取日志失败')}</div>`;
+            }
+        }
+
+        function renderRuntimeLogs() {
+            const target = document.getElementById('runtimeLogs');
+            if (!target) return;
+            const payload = state.runtimeLog || {};
+            const lines = payload.lines || [];
+            if (!lines.length) {
+                target.innerHTML = '<div class="empty">没有匹配的日志</div>';
+                return;
+            }
+            target.innerHTML = `
+                <div class="metric-note" style="margin-bottom:8px;">
+                    ${escapeHtml(payload.file || '')} · 匹配 ${fmtNumber(payload.total_matched || 0)} · 显示 ${fmtNumber(payload.count || 0)}
+                </div>
+                <pre class="log-viewer">${escapeHtml(lines.join('\n'))}</pre>
+            `;
         }
 
         async function loadErrors() {

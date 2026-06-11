@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import time
 import asyncio
 import httpx
@@ -18,6 +17,7 @@ from .auth import (
     webui_cookie_secure,
 )
 from .gateway_state import state
+from .user_import import import_user, import_users_batch, parse_raw_credentials
 
 router = APIRouter()
 
@@ -148,31 +148,20 @@ async def api_users_add(request: Request):
     try:
         body = await request.json()
         raw_text = body.get("raw_text", "")
-        # 解析正则提取
-        parsed = {}
-        for match in re.finditer(r'([a-zA-Z0-9_]+)="?([^;"]+)"?', raw_text):
-            parsed[match.group(1)] = match.group(2)
-            
-        uid = parsed.get("userId")
-        st = parsed.get("serviceToken")
-        ph = parsed.get("xiaomichatbot_ph")
-        
-        if not uid or not st or not ph:
-            return JSONResponse({"detail": "缺少必要字段 userId, serviceToken 或 xiaomichatbot_ph"}, status_code=400)
-            
-        os.makedirs(USERS_DIR, exist_ok=True)
-        target_file = os.path.join(USERS_DIR, f"user_{uid}.json")
-        
-        user_data = {
-            "userId": uid,
-            "serviceToken": st,
-            "xiaomichatbot_ph": ph,
-            "name": f"Imported_{uid}"
-        }
-        with open(target_file, "w", encoding="utf-8") as f:
-            json.dump(user_data, f, ensure_ascii=False, indent=2)
-            
-        return JSONResponse({"status": "ok", "userId": uid})
+        imported = import_user(parse_raw_credentials(raw_text), users_dir=USERS_DIR, overwrite=True)
+        return JSONResponse({"status": "ok", "userId": imported["userId"]})
+    except ValueError as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"detail": str(e)}, status_code=500)
+
+@router.post("/api/users/batch-import")
+async def api_users_batch_import(request: Request):
+    try:
+        body = await request.json()
+        return JSONResponse(import_users_batch(body, users_dir=USERS_DIR))
+    except ValueError as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
     except Exception as e:
         return JSONResponse({"detail": str(e)}, status_code=500)
 
