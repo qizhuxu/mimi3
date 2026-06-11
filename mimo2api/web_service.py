@@ -338,9 +338,12 @@ class ForwardAttempt:
     attempt_number: int
 
 @app.post("/api/rebuild")
-async def api_rebuild():
-    trigger_rebuild()
-    return JSONResponse(content={"ok": True, "message": "重建信号已发送，所有节点将在当前循环结束后立即重建"})
+async def api_rebuild(request: Request):
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    uid = str(body.get("uid") or "").strip() if isinstance(body, dict) else ""
+    trigger_rebuild(uid or None)
+    message = f"账号 {uid} 重建信号已发送" if uid else "滚动重建信号已发送，账号将按并行上限分批重建"
+    return JSONResponse(content={"ok": True, "uid": uid or None, "message": message})
 
 @app.get("/api/stats")
 async def api_stats():
@@ -402,9 +405,12 @@ async def api_lifecycle_status(refresh: bool = False):
     return JSONResponse(content=snapshot)
 
 @app.post("/api/lifecycle/rebuild")
-async def api_lifecycle_rebuild():
-    trigger_rebuild()
-    return JSONResponse(content={"ok": True, "lifecycle_status": "rebuild_pending", "message": "全局重建信号已发送"})
+async def api_lifecycle_rebuild(request: Request):
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    uid = str(body.get("uid") or "").strip() if isinstance(body, dict) else ""
+    trigger_rebuild(uid or None)
+    message = f"账号 {uid} 重建信号已发送" if uid else "滚动重建信号已发送"
+    return JSONResponse(content={"ok": True, "uid": uid or None, "lifecycle_status": "rebuild_pending", "message": message})
 
 @app.get("/api/status/history")
 async def api_status_history(hours: int = 24):

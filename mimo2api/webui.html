@@ -322,21 +322,46 @@
             margin-top: 4px;
         }
 
-        .config-group {
-            border-top: 1px solid var(--border);
-            padding-top: 14px;
-            margin-top: 14px;
+        .config-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 4px;
+            margin-bottom: 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: linear-gradient(180deg, #f8fafc, #eef2f7);
         }
 
-        .config-group:first-child {
-            border-top: 0;
-            padding-top: 0;
-            margin-top: 0;
+        .config-tab {
+            min-height: 32px;
+            border-color: transparent;
+            background: transparent;
+            color: #475467;
+            font-size: 13px;
         }
+
+        .config-tab:hover,
+        .config-tab.active {
+            border-color: #c7d7fe;
+            background: #fff;
+            color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+
+        .config-panel {
+            display: none;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            background: #fff;
+        }
+
+        .config-panel.active { display: block; }
 
         .config-group h3 {
-            margin: 0 0 10px;
-            font-size: 14px;
+            margin: 0 0 12px;
+            font-size: 15px;
         }
 
         .inline-actions {
@@ -774,10 +799,6 @@
             color: #344054;
         }
 
-        .config-group {
-            border-top-style: dashed;
-        }
-
         @media (max-width: 920px) {
             .app { grid-template-columns: 1fr; }
             .topbar {
@@ -861,7 +882,7 @@
                         <div class="inline-actions">
                             <label class="inline-actions"><input id="abnormalOnly" type="checkbox" style="width:auto; min-height:auto;" onchange="renderLifecycle()"> 只看异常</label>
                             <button onclick="loadLifecycle(true)">刷新</button>
-                            <button class="primary" onclick="triggerLifecycleRebuild()">全局重建</button>
+                            <button class="primary" onclick="triggerLifecycleRebuild()">滚动重建</button>
                         </div>
                     </div>
                     <div class="section-body" id="lifecycleTable">加载中...</div>
@@ -996,6 +1017,7 @@
             pollTimer: null,
             tickTimer: null,
             pollInFlight: false,
+            activeConfigGroup: '',
         };
 
         const titles = {
@@ -1012,6 +1034,14 @@
             return String(value ?? '').replace(/[&<>"']/g, ch => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
             }[ch]));
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value).replace(/'/g, '&#39;').replace(/`/g, '&#96;');
+        }
+
+        function jsString(value) {
+            return JSON.stringify(String(value ?? '')).replace(/</g, '\\u003c');
         }
 
         function fmtNumber(value, digits = 0) {
@@ -1270,7 +1300,7 @@
             el.innerHTML = `
                 <div class="table-wrap"><table>
                     <thead><tr>
-                        <th>账号</th><th>云端状态</th><th>Bridge</th><th>最后活跃</th><th>请求/冷却</th><th>判断</th><th>最近错误</th>
+                        <th>账号</th><th>云端状态</th><th>Bridge</th><th>最后活跃</th><th>请求/冷却</th><th>判断</th><th>最近错误</th><th>操作</th>
                     </tr></thead>
                     <tbody>
                     ${filtered.map(row => `
@@ -1282,6 +1312,7 @@
                             <td><div>pending ${fmtNumber(row.pending_requests)}</div><div class="muted">冷却 ${countdownHtml(row.cooldown_remaining_seconds || 0, '0 秒')}</div></td>
                             <td>${lifecycleBadge(row.lifecycle_status)}<div class="muted">连续异常 ${fmtNumber(row.consecutive_failures)}</div></td>
                             <td class="mono">${escapeHtml(row.last_error || '-')}</td>
+                            <td><button onclick="triggerLifecycleRebuild(${escapeAttr(jsString(row.uid))})">重建此账号</button></td>
                         </tr>
                     `).join('')}
                     </tbody>
@@ -1290,10 +1321,18 @@
             refreshRuntimeCountdowns();
         }
 
-        async function triggerLifecycleRebuild() {
-            if (!confirm('确定触发所有账号全局重建？')) return;
-            await fetchJson('/api/lifecycle/rebuild', { method: 'POST' });
-            showToast('全局重建信号已发送');
+        async function triggerLifecycleRebuild(uid = '') {
+            const target = String(uid || '').trim();
+            const message = target
+                ? `确定触发账号 ${target} 重建？该账号会进入滚动重建队列。`
+                : '确定触发所有账号滚动重建？系统会按并行上限分批执行。';
+            if (!confirm(message)) return;
+            await fetchJson('/api/lifecycle/rebuild', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(target ? { uid: target } : {}),
+            });
+            showToast(target ? `账号 ${target} 重建信号已发送` : '滚动重建信号已发送');
             await loadLifecycle(true);
         }
 
@@ -1488,14 +1527,41 @@
                 groups[group] ||= [];
                 groups[group].push([key, item]);
             });
-            container.innerHTML = Object.entries(groups).map(([group, items]) => `
-                <div class="config-group">
-                    <h3>${escapeHtml(group)}</h3>
-                    <div class="form-grid">
-                        ${items.map(([key, item]) => configFieldHtml(key, item)).join('')}
-                    </div>
+            const entries = Object.entries(groups);
+            if (!entries.length) {
+                container.innerHTML = '<div class="empty">暂无可配置项</div>';
+                return;
+            }
+            if (!state.activeConfigGroup || !groups[state.activeConfigGroup]) {
+                state.activeConfigGroup = entries[0][0];
+            }
+            container.innerHTML = `
+                <div class="config-tabs" role="tablist" aria-label="系统配置分组">
+                    ${entries.map(([group, items]) => `
+                        <button class="config-tab ${group === state.activeConfigGroup ? 'active' : ''}"
+                            role="tab"
+                            aria-selected="${group === state.activeConfigGroup ? 'true' : 'false'}"
+                            onclick="switchConfigGroup(${escapeAttr(jsString(group))})">
+                            ${escapeHtml(group)} <span class="muted">${items.length}</span>
+                        </button>
+                    `).join('')}
                 </div>
-            `).join('');
+                ${entries.map(([group, items]) => `
+                    <div class="config-panel ${group === state.activeConfigGroup ? 'active' : ''}" role="tabpanel">
+                        <div class="config-group">
+                            <h3>${escapeHtml(group)}</h3>
+                            <div class="form-grid">
+                                ${items.map(([key, item]) => configFieldHtml(key, item)).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+
+        function switchConfigGroup(group) {
+            state.activeConfigGroup = group;
+            renderConfig();
         }
 
         function configFieldHtml(key, item) {
