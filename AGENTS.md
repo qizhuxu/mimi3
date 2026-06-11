@@ -104,4 +104,4 @@ If the local `.venv` is stale or points to a missing interpreter, recreate it in
 - Keep diffs scoped. Avoid broad formatting churn, especially in `webui.html` and large orchestration modules.
 - If changing public behavior, update `README.md` or `env.example` when needed.
 - If changing Docker/runtime paths, keep `Dockerfile`, `docker-compose.yml`, `env.example`, and docs aligned.
-
+- For goal-driven work, update `F:\AI\my-obsidian\mimi3\mimi3自建.md` after verification with task status, acceptance notes, test commands, and remaining risks.
