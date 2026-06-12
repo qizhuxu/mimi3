@@ -18,6 +18,7 @@ from .auth import (
 )
 from .gateway_state import state
 from .user_import import import_user, import_users_batch, parse_raw_credentials
+from .web_chat_proxy import build_web_chat_proxy_metadata
 
 router = APIRouter()
 
@@ -138,6 +139,7 @@ async def api_users_list():
             "userId": data.get("userId"),
             "name": data.get("name"),
             "serviceTokenConfigured": bool(data.get("serviceToken")),
+            "webChatProxy": build_web_chat_proxy_metadata(str(data.get("userId") or ""), data),
             "claw_status": data.get("claw_status", "UNKNOWN"),
             "remain_sec": data.get("remain_sec", 0)
         })

@@ -708,6 +708,42 @@
             font-weight: 760;
         }
 
+        .proxy-config-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .proxy-account-field {
+            width: min(320px, 100%);
+        }
+
+        .proxy-meta,
+        .proxy-credentials {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .proxy-meta {
+            justify-content: flex-end;
+        }
+
+        .proxy-credentials {
+            margin-bottom: 10px;
+        }
+
+        .proxy-endpoint-path {
+            min-width: 320px;
+        }
+
+        .copy-button {
+            min-width: 58px;
+        }
+
         .status-stack {
             display: grid;
             gap: 6px;
@@ -830,6 +866,8 @@
         @media (max-width: 620px) {
             .main { padding: 12px; }
             .account-summary { grid-template-columns: 1fr; }
+            .proxy-config-row { align-items: stretch; flex-direction: column; }
+            .proxy-meta { justify-content: flex-start; }
             .status-line { align-items: flex-start; flex-direction: column; }
         }
     </style>
@@ -946,6 +984,19 @@
                         </div>
                     </div>
                     <div class="section-body" id="usersTable">加载中...</div>
+                </div>
+                <div class="section">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <h2>网页对话反代</h2>
+                            <p>按账号 UID 生成本机代理入口</p>
+                        </div>
+                        <div class="inline-actions">
+                            <span class="badge info">AI Studio 固定上游</span>
+                            <span class="badge success">open-apis 白名单</span>
+                        </div>
+                    </div>
+                    <div class="section-body" id="webChatProxyPanel">加载中...</div>
                 </div>
             </section>
 
@@ -1081,6 +1132,7 @@
             lifecycle: null,
             manager: null,
             users: [],
+            selectedWebChatUid: '',
             errors: [],
             logFiles: [],
             runtimeLog: null,
@@ -1549,12 +1601,147 @@
             await loadLifecycle(true);
         }
 
+        function webChatUid(user) {
+            return String(user?.webChatProxy?.uid || user?.userId || '').trim();
+        }
+
+        function syncSelectedWebChatUid() {
+            const uids = state.users.map(webChatUid).filter(Boolean);
+            if (!uids.length) {
+                state.selectedWebChatUid = '';
+                return;
+            }
+            if (!uids.includes(state.selectedWebChatUid)) {
+                state.selectedWebChatUid = uids[0];
+            }
+        }
+
+        function selectedWebChatUser() {
+            syncSelectedWebChatUid();
+            return state.users.find(user => webChatUid(user) === state.selectedWebChatUid) || null;
+        }
+
+        function webChatEndpointLabel(key) {
+            const labels = {
+                bot_chat: '对话发送',
+                conversation_list: '会话列表',
+                dialog_list: '对话列表',
+                ws_proxy: 'WS 代理',
+            };
+            return labels[key] || key || '-';
+        }
+
+        function webChatCredentialBadge(label, configured) {
+            return badge(`${label} ${configured ? '已配置' : '缺失'}`, configured ? 'success' : 'danger');
+        }
+
+        function selectWebChatUid(uid) {
+            state.selectedWebChatUid = String(uid || '');
+            renderWebChatProxyPanel();
+        }
+
+        function renderWebChatProxyPanel() {
+            const el = document.getElementById('webChatProxyPanel');
+            if (!el) return;
+            if (!state.users.length) {
+                state.selectedWebChatUid = '';
+                el.innerHTML = '<div class="empty">当前没有可用账号</div>';
+                return;
+            }
+
+            const user = selectedWebChatUser();
+            if (!user) {
+                el.innerHTML = '<div class="empty">未选中账号</div>';
+                return;
+            }
+
+            const meta = user.webChatProxy || {};
+            const credentials = meta.credentials || {};
+            const endpoints = Array.isArray(meta.endpoints) ? meta.endpoints : [];
+            const options = state.users.map(item => {
+                const uid = webChatUid(item);
+                const name = item.name || '(未命名)';
+                return `
+                    <option value="${escapeHtml(uid)}" ${uid === state.selectedWebChatUid ? 'selected' : ''}>
+                        ${escapeHtml(name)} / ${escapeHtml(uid)}
+                    </option>
+                `;
+            }).join('');
+            const endpointRows = endpoints.length ? endpoints.map(endpoint => {
+                const path = String(endpoint.path || '');
+                return `
+                    <tr>
+                        <td>${badge(endpoint.type || 'HTTP', endpoint.type === 'WS' ? 'info' : '')}</td>
+                        <td>${escapeHtml(webChatEndpointLabel(endpoint.key))}</td>
+                        <td class="mono proxy-endpoint-path">${escapeHtml(path || '-')}</td>
+                        <td><button class="copy-button" ${path ? '' : 'disabled'} onclick="copyWebChatEndpoint(${escapeAttr(jsString(path))})">复制</button></td>
+                    </tr>
+                `;
+            }).join('') : '<tr><td colspan="4" class="muted">后端未返回可用端点</td></tr>';
+
+            el.innerHTML = `
+                <div class="proxy-config-row">
+                    <div class="field proxy-account-field">
+                        <label for="webChatProxyUid">账号 UID</label>
+                        <select id="webChatProxyUid" onchange="selectWebChatUid(this.value)">${options}</select>
+                    </div>
+                    <div class="proxy-meta">
+                        ${badge(`上游 ${meta.upstream || 'AI Studio'}`, meta.upstreamLocked ? 'info' : 'warn')}
+                        ${badge(meta.allowedByBackend ? '后端已放行' : '后端未放行', meta.allowedByBackend ? 'success' : 'danger')}
+                    </div>
+                </div>
+                <div class="proxy-credentials">
+                    ${webChatCredentialBadge('userId', credentials.userId)}
+                    ${webChatCredentialBadge('serviceToken', credentials.serviceToken)}
+                    ${webChatCredentialBadge('xiaomichatbot_ph', credentials.xiaomichatbot_ph)}
+                </div>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>类型</th><th>端点</th><th>路径</th><th>操作</th></tr></thead>
+                    <tbody>${endpointRows}</tbody>
+                </table></div>
+            `;
+        }
+
+        async function copyText(value) {
+            const text = String(value || '');
+            if (!text) return;
+            if (navigator.clipboard?.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return;
+                } catch (err) {
+                    // Fall through to the legacy path for local HTTP contexts.
+                }
+            }
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            if (!ok) throw new Error('copy failed');
+        }
+
+        async function copyWebChatEndpoint(path) {
+            try {
+                await copyText(path);
+                showToast('已复制端点');
+            } catch (err) {
+                showToast('复制失败', 'error');
+            }
+        }
+
         async function loadUsers() {
             const data = await fetchJson('/api/users/list');
             state.users = data.users || [];
+            syncSelectedWebChatUid();
             const el = document.getElementById('usersTable');
             if (!state.users.length) {
                 el.innerHTML = '<div class="empty">当前没有导入账号</div>';
+                renderWebChatProxyPanel();
                 return;
             }
             const total = state.users.length;
@@ -1583,6 +1770,7 @@
                     `).join('')}</tbody>
                 </table></div>
             `;
+            renderWebChatProxyPanel();
             refreshRuntimeCountdowns();
         }
 

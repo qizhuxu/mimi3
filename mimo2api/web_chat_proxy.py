@@ -41,6 +41,12 @@ ALLOWED_PREFIXES = (
     "open-apis/contact",
     "open-apis/user/mi",
 )
+WEB_CHAT_PROXY_ENDPOINTS = (
+    ("bot_chat", "HTTP", "/api/web-chat/{uid}/open-apis/bot/chat"),
+    ("conversation_list", "HTTP", "/api/web-chat/{uid}/open-apis/chat/conversation/list"),
+    ("dialog_list", "HTTP", "/api/web-chat/{uid}/open-apis/chat/dialog/list"),
+    ("ws_proxy", "WS", "/api/web-chat/{uid}/ws/proxy"),
+)
 
 router = APIRouter()
 
@@ -65,6 +71,32 @@ def _cookies_for_user(user: dict) -> dict[str, str]:
         "serviceToken": str(user.get("serviceToken", "") or ""),
         "userId": str(user.get("userId", "") or ""),
         "xiaomichatbot_ph": ph,
+    }
+
+
+def build_web_chat_proxy_metadata(uid: str, user: dict) -> dict:
+    safe_uid = "".join(ch for ch in str(uid or "") if ch.isdigit())
+    if safe_uid != str(uid or ""):
+        safe_uid = ""
+    credentials = {
+        "userId": bool(str(user.get("userId", "") or "").strip()),
+        "serviceToken": bool(str(user.get("serviceToken", "") or "").strip()),
+        "xiaomichatbot_ph": bool(str(user.get("xiaomichatbot_ph", "") or "").strip()),
+    }
+    return {
+        "uid": safe_uid,
+        "upstream": "AI Studio",
+        "upstreamLocked": True,
+        "allowedByBackend": True,
+        "credentials": credentials,
+        "endpoints": [
+            {
+                "key": key,
+                "type": endpoint_type,
+                "path": template.format(uid=safe_uid),
+            }
+            for key, endpoint_type, template in WEB_CHAT_PROXY_ENDPOINTS
+        ] if safe_uid else [],
     }
 
 
