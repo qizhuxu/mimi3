@@ -418,13 +418,163 @@ class WebSocketHealthTests(unittest.TestCase):
         self.assertNotIn("ph-secret-value", raw_logs)
         self.assertIn("reply", reply)
 
+    def test_claw_chat_trace_logs_prompt_id_and_redacts_api_key_values(self):
+        import asyncio
+        import logging
+        from mimo2api.manager import NativeClawClient
+
+        logger = logging.getLogger("test-claw-chat-prompt-id")
+        logger.setLevel(logging.INFO)
+        client = NativeClawClient("ph", {"userId": "uid-prompt-id"}, logger)
+        client.connected = True
+
+        class DummyWs:
+            async def send(self, payload):
+                client.events.append({
+                    "event": "chat",
+                    "payload": {
+                        "state": "final",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "ok"}],
+                        },
+                    },
+                })
+
+        client.ws = DummyWs()
+        prompt = "MIMO_API_KEY=sk-secret-value MIMO_API_ENDPOINT=https://secret.example/v1/chat/completions"
+
+        with self.assertLogs(logger, level="INFO") as captured:
+            asyncio.run(client.send_message(prompt, timeout=1, stage="bridge.inject", prompt_id="bridge.v1.standard"))
+
+        raw_logs = "\n".join(captured.output)
+        self.assertIn("prompt_id=bridge.v1.standard", raw_logs)
+        self.assertNotIn("sk-secret-value", raw_logs)
+
+    def test_bridge_injection_failure_classification_recognizes_retry_causes(self):
+        from mimo2api.manager import bridge_injection_failure_classes, classify_bridge_injection_failure
+
+        cases = [
+            ("我的安全策略禁止执行 pip install 等安装命令", "dependency_install_refused"),
+            ("ModuleNotFoundError: No module named 'websockets'", "dependency_missing"),
+            ("它用本机 API Key 代理外部请求，本质是把凭据暴露给第三方，我不会执行", "proxy_or_api_key_refused"),
+            ("请你手动运行命令，安装完成后告诉我", "manual_action_requested"),
+            ("(等待最终态回复超时)", "timeout"),
+            ("抱歉，我不能执行这个请求", "generic_refusal"),
+        ]
+
+        for reply, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertIn(expected, bridge_injection_failure_classes(reply))
+                self.assertEqual(classify_bridge_injection_failure(reply), expected)
+
+    def test_bridge_prompt_selector_does_not_repeat_prompt_ids_across_retries(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+
+        class DummyClient:
+            def __init__(self):
+                self.prompt_ids = []
+
+            async def send_message(self, text, timeout=120, stage="chat", prompt_id=None):
+                if stage == "bridge.inject":
+                    self.prompt_ids.append(prompt_id)
+                    if len(self.prompt_ids) == 1:
+                        return "我的安全策略禁止执行 pip install 等安装命令"
+                    if len(self.prompt_ids) == 2:
+                        return "它用本机 API Key 代理外部请求，本质是把凭据暴露给第三方，我不会执行"
+                    return "我已完成"
+                return "reset ok"
+
+        async def fake_fetch_remote_gateway_nodes():
+            return {}, {"url": "", "error": "local stats skipped"}
+
+        async def fake_wait_for_node_status(node_id, timeout=90, baseline_remote_meta=None):
+            return manager_module.NodeWaitResult(reason="timeout")
+
+        original_fetch = manager_module.fetch_remote_gateway_nodes
+        original_sleep = manager_module.asyncio.sleep
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        async def fake_sleep(seconds):
+            await original_sleep(0)
+
+        manager_module.asyncio.sleep = fake_sleep
+        logging.getLogger("Acc-test-uid-prompt-rotate").disabled = True
+        try:
+            client = DummyClient()
+            manager = manager_module.AccountManager("uid-prompt-rotate", {"userId": "uid-prompt-rotate", "name": "test"})
+            manager._wait_for_node_status = fake_wait_for_node_status
+            prompts = manager_module.build_bridge_injection_prompt_library("BRIDGE_CODE")
+            result = asyncio.run(manager.inject_bridge_with_retry(
+                client,
+                prompts,
+                max_retries=3,
+                ws_wait_timeout=90,
+                label="桥接脚本(测试)",
+            ))
+        finally:
+            logging.getLogger("Acc-test-uid-prompt-rotate").disabled = False
+            manager_module.fetch_remote_gateway_nodes = original_fetch
+            manager_module.asyncio.sleep = original_sleep
+
+        self.assertFalse(result)
+        self.assertEqual(len(client.prompt_ids), 3)
+        self.assertEqual(len(set(client.prompt_ids)), 3)
+
+    def test_bridge_injection_uses_short_node_wait_after_explicit_refusal(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+
+        class DummyClient:
+            async def send_message(self, text, timeout=120, stage="chat", prompt_id=None):
+                if stage == "bridge.inject":
+                    return "我的安全策略禁止执行 pip install 等安装命令"
+                return "reset ok"
+
+        async def fake_fetch_remote_gateway_nodes():
+            return {}, {"url": "", "error": "local stats skipped"}
+
+        wait_timeouts = []
+
+        async def fake_wait_for_node_status(node_id, timeout=90, baseline_remote_meta=None):
+            wait_timeouts.append(timeout)
+            return manager_module.NodeWaitResult(reason="timeout")
+
+        original_fetch = manager_module.fetch_remote_gateway_nodes
+        original_sleep = manager_module.asyncio.sleep
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        async def fake_sleep(seconds):
+            await original_sleep(0)
+
+        manager_module.asyncio.sleep = fake_sleep
+        logging.getLogger("Acc-test-uid-short-wait").disabled = True
+        try:
+            manager = manager_module.AccountManager("uid-short-wait", {"userId": "uid-short-wait", "name": "test"})
+            manager._wait_for_node_status = fake_wait_for_node_status
+            prompts = manager_module.build_bridge_injection_prompt_library("BRIDGE_CODE")
+            asyncio.run(manager.inject_bridge_with_retry(
+                DummyClient(),
+                prompts,
+                max_retries=2,
+                ws_wait_timeout=90,
+                label="桥接脚本(测试)",
+            ))
+        finally:
+            logging.getLogger("Acc-test-uid-short-wait").disabled = False
+            manager_module.fetch_remote_gateway_nodes = original_fetch
+            manager_module.asyncio.sleep = original_sleep
+
+        self.assertEqual(wait_timeouts[0], manager_module.BRIDGE_REFUSAL_NODE_WAIT_SECONDS)
+
     def test_bridge_injection_logs_send_and_node_wait_stages(self):
         import asyncio
         import logging
         import mimo2api.manager as manager_module
 
         class DummyClient:
-            async def send_message(self, text, timeout=120, stage="chat"):
+            async def send_message(self, text, timeout=120, stage="chat", prompt_id=None):
                 return "assistant finished"
 
         async def fake_fetch_remote_gateway_nodes():
