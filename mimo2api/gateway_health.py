@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -35,8 +36,24 @@ def stats_url_from_ws_url(ws_url: str) -> str:
     parsed = urlsplit(str(ws_url or "").strip())
     if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
         return ""
+    if not is_cloud_reachable_ws_url(ws_url):
+        return ""
     scheme = "https" if parsed.scheme == "wss" else "http"
     return urlunsplit((scheme, parsed.netloc, "/api/stats", "", ""))
+
+
+def is_cloud_reachable_ws_url(ws_url: str) -> bool:
+    parsed = urlsplit(str(ws_url or "").strip())
+    if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if host in {"localhost"}:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (ip.is_loopback or ip.is_unspecified)
 
 
 def parse_stats_nodes(payload: dict[str, Any], *, source_url: str) -> dict[str, NodePresence]:

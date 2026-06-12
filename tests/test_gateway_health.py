@@ -15,6 +15,21 @@ class GatewayHealthTests(unittest.TestCase):
             "http://1.2.3.4:8000/api/stats",
         )
 
+    def test_stats_url_skips_local_bind_addresses_that_cloud_nodes_cannot_reach(self):
+        from mimo2api.gateway_health import is_cloud_reachable_ws_url, stats_url_from_ws_url
+
+        for ws_url in (
+            "ws://0.0.0.0:8000/ws",
+            "ws://127.0.0.1:8000/ws",
+            "ws://localhost:8000/ws",
+            "ws://[::1]:8000/ws",
+        ):
+            with self.subTest(ws_url=ws_url):
+                self.assertEqual(stats_url_from_ws_url(ws_url), "")
+                self.assertFalse(is_cloud_reachable_ws_url(ws_url))
+
+        self.assertTrue(is_cloud_reachable_ws_url("wss://gateway.example.com/ws"))
+
     def test_parse_remote_stats_nodes_uses_node_uid(self):
         from mimo2api.gateway_health import parse_stats_nodes, summarize_stats_payload
 

@@ -322,6 +322,142 @@ class WebSocketHealthTests(unittest.TestCase):
             logging.getLogger("Acc-test-uid-unknown").disabled = False
             manager_module.fetch_remote_gateway_nodes = original
 
+    def test_wait_for_node_uses_wall_clock_deadline_when_remote_stats_is_slow(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+
+        now = [0.0]
+        fetch_calls = 0
+        sleep_calls = 0
+
+        async def fake_fetch_remote_gateway_nodes():
+            nonlocal fetch_calls
+            fetch_calls += 1
+            now[0] += 5.0
+            return {}, {"url": "https://gateway.example.com/api/stats", "error": "slow"}
+
+        async def fake_sleep(seconds):
+            nonlocal sleep_calls
+            sleep_calls += 1
+            now[0] += float(seconds)
+
+        original_fetch = manager_module.fetch_remote_gateway_nodes
+        original_monotonic = manager_module.time.monotonic
+        original_sleep = manager_module.asyncio.sleep
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        manager_module.time.monotonic = lambda: now[0]
+        manager_module.asyncio.sleep = fake_sleep
+        logging.getLogger("Acc-test-uid-deadline").disabled = True
+        try:
+            manager = manager_module.AccountManager("uid-deadline", {"userId": "uid-deadline", "name": "test"})
+            result = asyncio.run(manager._wait_for_node_status("uid-deadline", timeout=2))
+        finally:
+            logging.getLogger("Acc-test-uid-deadline").disabled = False
+            manager_module.fetch_remote_gateway_nodes = original_fetch
+            manager_module.time.monotonic = original_monotonic
+            manager_module.asyncio.sleep = original_sleep
+
+        self.assertFalse(result.ok)
+        self.assertEqual(fetch_calls, 1)
+        self.assertEqual(sleep_calls, 0)
+
+    def test_claw_chat_trace_logs_are_redacted_and_truncated(self):
+        import asyncio
+        import logging
+        from mimo2api.manager import NativeClawClient
+
+        logger = logging.getLogger("test-claw-chat-trace")
+        logger.setLevel(logging.INFO)
+        client = NativeClawClient(
+            "ph-secret-value",
+            {
+                "userId": "uid-trace",
+                "serviceToken": "service-secret-value",
+                "xiaomichatbot_ph": "ph-secret-value",
+            },
+            logger,
+        )
+        client.connected = True
+
+        class DummyWs:
+            async def send(self, payload):
+                client.events.append({
+                    "event": "chat",
+                    "payload": {
+                        "state": "final",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{
+                                "type": "text",
+                                "text": "reply " + ("r" * 500) + " service-secret-value ph-secret-value",
+                            }],
+                        },
+                    },
+                })
+
+        client.ws = DummyWs()
+        prompt = (
+            "run bridge "
+            "serviceToken=service-secret-value "
+            "xiaomichatbot_ph=ph-secret-value "
+            "Cookie: serviceToken=service-secret-value; xiaomichatbot_ph=ph-secret-value "
+            + ("p" * 600)
+        )
+
+        with self.assertLogs(logger, level="INFO") as captured:
+            reply = asyncio.run(client.send_message(prompt, timeout=1, stage="bridge.inject"))
+
+        raw_logs = "\n".join(captured.output)
+        self.assertIn("claw.chat.send", raw_logs)
+        self.assertIn("claw.chat.reply", raw_logs)
+        self.assertIn("phase=bridge.inject", raw_logs)
+        self.assertIn("request_id=", raw_logs)
+        self.assertIn("sha1=", raw_logs)
+        self.assertNotIn("service-secret-value", raw_logs)
+        self.assertNotIn("ph-secret-value", raw_logs)
+        self.assertIn("reply", reply)
+
+    def test_bridge_injection_logs_send_and_node_wait_stages(self):
+        import asyncio
+        import logging
+        import mimo2api.manager as manager_module
+
+        class DummyClient:
+            async def send_message(self, text, timeout=120, stage="chat"):
+                return "assistant finished"
+
+        async def fake_fetch_remote_gateway_nodes():
+            return {}, {"url": "", "error": "local stats skipped"}
+
+        async def fake_wait_for_node_status(node_id, timeout=90, baseline_remote_meta=None):
+            return manager_module.NodeWaitResult(reason="timeout")
+
+        original_fetch = manager_module.fetch_remote_gateway_nodes
+        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
+        logger = logging.getLogger("Acc-test-uid-inject-log")
+        logger.setLevel(logging.INFO)
+        try:
+            manager = manager_module.AccountManager("uid-inject-log", {"userId": "uid-inject-log", "name": "test"})
+            manager._wait_for_node_status = fake_wait_for_node_status
+            with self.assertLogs(logger, level="INFO") as captured:
+                result = asyncio.run(manager.inject_bridge_with_retry(
+                    DummyClient(),
+                    "prompt",
+                    max_retries=1,
+                    ws_wait_timeout=1,
+                    label="桥接脚本(测试)",
+                ))
+        finally:
+            manager_module.fetch_remote_gateway_nodes = original_fetch
+
+        raw_logs = "\n".join(captured.output)
+        self.assertFalse(result)
+        self.assertIn("bridge.inject.chat_send.start", raw_logs)
+        self.assertIn("bridge.inject.chat_send.done", raw_logs)
+        self.assertIn("bridge.inject.node_wait.start", raw_logs)
+        self.assertIn("bridge.inject.node_wait.done", raw_logs)
+
 
 class ManagerLifecycleConfigTests(unittest.TestCase):
     def setUp(self):

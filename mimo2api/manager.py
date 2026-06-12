@@ -16,17 +16,18 @@ import time
 import asyncio
 import logging
 import uuid
+import re
 from dataclasses import dataclass
 from urllib.parse import quote
 import httpx
 import websockets
 
 try:
-    from .gateway_health import fetch_remote_gateway_nodes
+    from .gateway_health import fetch_remote_gateway_nodes, is_cloud_reachable_ws_url
     from .logging_utils import compact_text, log_event
     from .runtime_config import get_config_value
 except ImportError:
-    from gateway_health import fetch_remote_gateway_nodes
+    from gateway_health import fetch_remote_gateway_nodes, is_cloud_reachable_ws_url
     from logging_utils import compact_text, log_event
     from runtime_config import get_config_value
 
@@ -279,6 +280,8 @@ async def get_bridge_code(node_id: str | None = None) -> str:
     ws_url = sync_bridge_ws_env()
     if not ws_url:
         raise ValueError("MIMO2API_WS_URL环境变量未配置")
+    if not is_cloud_reachable_ws_url(ws_url):
+        raise ValueError(f"Bridge WS URL 不可从云端 Claw 回连: {ws_url}")
     # 若提供了 node_id，把它拼到 query string 上，便于网关精准识别该账号节点是否在线
     if node_id:
         sep = "&" if "?" in ws_url else "?"
@@ -301,6 +304,22 @@ def _aistudio_headers() -> dict:
 
 def _truncate_text(value, limit: int = 300) -> str:
     return compact_text(value, limit=limit)
+
+
+_SECRET_TEXT_SUBS = (
+    (re.compile(r"(?i)(cookie\s*:\s*)[^\n\r]+"), r"\1<redacted>"),
+    (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+"), r"\1<redacted>"),
+    (re.compile(r"(?i)((?:serviceToken|xiaomichatbot_ph|session_secret|webui_session)\s*=\s*)[\"']?[^;\s,\"']+"), r"\1<redacted>"),
+    (re.compile(r"(?i)(\"(?:serviceToken|xiaomichatbot_ph|session_secret|webui_session)\"\s*:\s*\")[^\"]+(\")"), r"\1<redacted>\2"),
+    (re.compile(r"(?i)('(?:serviceToken|xiaomichatbot_ph|session_secret|webui_session)'\s*:\s*')[^']+(')"), r"\1<redacted>\2"),
+)
+
+
+def safe_claw_trace_text(value, limit: int = 360) -> str:
+    text = "" if value is None else str(value)
+    for pattern, replacement in _SECRET_TEXT_SUBS:
+        text = pattern.sub(replacement, text)
+    return compact_text(text, limit=limit)
 
 
 # 注入反代脚本时识别 AI 拒绝/负面回复的关键词
@@ -563,9 +582,18 @@ class NativeClawClient:
         except Exception:
             self.connected = False
 
-    async def send_message(self, text: str, timeout: int = 120) -> str:
+    async def send_message(self, text: str, timeout: int = 120, stage: str = "chat") -> str:
         """向 Claw 环境发生信息，并捕获最终确定的 AI 文本回复框"""
+        uid = str(self.cookies.get("userId") or "")
         if not self.connected or not self.ws:
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "claw.chat.unavailable",
+                uid=uid,
+                phase=stage,
+                reason="websocket_not_connected",
+            )
             return "(发送失败，Websocket 未连接)"
             
         self.events.clear()
@@ -574,10 +602,34 @@ class NativeClawClient:
             "type": "req", "id": req_id, "method": "chat.send",
             "params": {"sessionKey": self.session_key, "message": text, "idempotencyKey": str(uuid.uuid4())}
         }
+        started = time.monotonic()
+        log_event(
+            self.logger,
+            logging.INFO,
+            "claw.chat.send",
+            uid=uid,
+            phase=stage,
+            request_id=req_id,
+            timeout_seconds=timeout,
+            prompt=safe_claw_trace_text(text, limit=360),
+            text_limit=520,
+        )
         
         try:
             await self.ws.send(json.dumps(payload))
         except Exception as e:
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            log_event(
+                self.logger,
+                logging.WARNING,
+                "claw.chat.send_error",
+                uid=uid,
+                phase=stage,
+                request_id=req_id,
+                elapsed_ms=elapsed_ms,
+                error=e,
+                text_limit=240,
+            )
             return f"(下发 payload 异常: {e})"
 
         reply = None
@@ -591,9 +643,34 @@ class NativeClawClient:
                                 reply = c["text"]
                     if evt.get("payload", {}).get("state") == "final" and reply:
                         self.events.clear()
+                        elapsed_ms = int((time.monotonic() - started) * 1000)
+                        log_event(
+                            self.logger,
+                            logging.INFO,
+                            "claw.chat.reply",
+                            uid=uid,
+                            phase=stage,
+                            request_id=req_id,
+                            elapsed_ms=elapsed_ms,
+                            reply=safe_claw_trace_text(reply, limit=360),
+                            text_limit=520,
+                        )
                         return reply
             await asyncio.sleep(0.1)
         self.events.clear()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        log_event(
+            self.logger,
+            logging.WARNING,
+            "claw.chat.timeout",
+            uid=uid,
+            phase=stage,
+            request_id=req_id,
+            elapsed_ms=elapsed_ms,
+            timeout_seconds=timeout,
+            partial_reply=safe_claw_trace_text(reply, limit=240) if reply else "",
+            text_limit=420,
+        )
         return reply or "(等待最终态回复超时)"
         
     async def close(self):
@@ -715,10 +792,11 @@ class AccountManager:
             return NodeWaitResult(exact=True, reason="gateway_state_unavailable")
         key = str(node_id)
         next_remote_check = 0.0
-        remote_interval = 2.0
+        deadline = time.monotonic() + max(0, float(timeout))
+        remote_interval = min(2.0, max(0.1, float(timeout) / 2.0 if timeout else 0.1))
         baseline_active = _meta_int(baseline_remote_meta or {}, "active_clients")
         baseline_unknown = _meta_int(baseline_remote_meta or {}, "unknown_nodes")
-        for _ in range(timeout * 2):
+        while time.monotonic() < deadline:
             if key in gw_state.node_to_ws:
                 return NodeWaitResult(exact=True, reason="local")
             now = time.monotonic()
@@ -761,20 +839,14 @@ class AccountManager:
                         error=remote_meta.get("error"),
                         text_limit=180,
                     )
-            await asyncio.sleep(0.5)
+                if time.monotonic() >= deadline:
+                    break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(0.5, remaining))
         if key in gw_state.node_to_ws:
             return NodeWaitResult(exact=True, reason="local")
-        remote_nodes, remote_meta = await fetch_remote_gateway_nodes()
-        if key in remote_nodes:
-            return NodeWaitResult(exact=True, source_url=remote_nodes[key].source_url, reason="remote_uid")
-        active_count = _meta_int(remote_meta, "active_clients")
-        unknown_count = _meta_int(remote_meta, "unknown_nodes")
-        if active_count > baseline_active and unknown_count > baseline_unknown:
-            return NodeWaitResult(
-                ambiguous=True,
-                source_url=str(remote_meta.get("url") or ""),
-                reason="remote_unknown_node_growth",
-            )
         return NodeWaitResult(reason="timeout")
 
     async def _wait_for_node(self, node_id: str, timeout: int = 90) -> bool:
@@ -930,8 +1002,17 @@ class AccountManager:
                 attempt=attempt,
                 max_retries=max_retries,
             )
+            chat_started = time.monotonic()
+            log_event(
+                self.logger,
+                logging.INFO,
+                "bridge.inject.chat_send.start",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+            )
             try:
-                reply = await client.send_message(inject_prompt, timeout=180)
+                reply = await client.send_message(inject_prompt, timeout=180, stage="bridge.inject")
             except Exception as e:
                 log_event(
                     self.logger,
@@ -944,6 +1025,18 @@ class AccountManager:
                     text_limit=240,
                 )
                 reply = None
+            chat_elapsed_ms = int((time.monotonic() - chat_started) * 1000)
+            log_event(
+                self.logger,
+                logging.INFO,
+                "bridge.inject.chat_send.done",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                elapsed_ms=chat_elapsed_ms,
+                reply=safe_claw_trace_text(reply, limit=240) if reply else "",
+                text_limit=420,
+            )
             log_event(
                 self.logger,
                 logging.DEBUG,
@@ -956,10 +1049,35 @@ class AccountManager:
             )
 
             # 关键：以 WS 真实上线为唯一成功判据，AI 回复内容只是辅助诊断
+            node_wait_started = time.monotonic()
+            log_event(
+                self.logger,
+                logging.INFO,
+                "bridge.inject.node_wait.start",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                timeout_seconds=ws_wait_timeout,
+            )
             node_result = await self._wait_for_node_status(
                 self.uid,
                 timeout=ws_wait_timeout,
                 baseline_remote_meta=baseline_remote_meta,
+            )
+            node_wait_elapsed_ms = int((time.monotonic() - node_wait_started) * 1000)
+            log_event(
+                self.logger,
+                logging.INFO if node_result.ok else logging.WARNING,
+                "bridge.inject.node_wait.done",
+                uid=self.uid,
+                label=label,
+                attempt=attempt,
+                ok=node_result.ok,
+                exact=node_result.exact,
+                ambiguous=node_result.ambiguous,
+                reason=node_result.reason,
+                source_url=node_result.source_url,
+                elapsed_ms=node_wait_elapsed_ms,
             )
             if node_result.ok:
                 log_event(
@@ -997,7 +1115,7 @@ class AccountManager:
                         label=label,
                         attempt=attempt,
                     )
-                    reset_reply = await client.send_message("/reset", timeout=60)
+                    reset_reply = await client.send_message("/reset", timeout=60, stage="bridge.inject.reset")
                     log_event(
                         self.logger,
                         logging.DEBUG,
@@ -1127,7 +1245,7 @@ class AccountManager:
                     )
 
                     log_event(self.logger, logging.INFO, "claw.reset.command", uid=self.uid, target="soul.md")
-                    reply_soul = await client.send_message(reset_soul_cmd, timeout=120)
+                    reply_soul = await client.send_message(reset_soul_cmd, timeout=120, stage="claw.reset.soul")
                     log_event(
                         self.logger,
                         logging.DEBUG,
@@ -1139,7 +1257,7 @@ class AccountManager:
                     )
 
                     log_event(self.logger, logging.INFO, "claw.reset.command", uid=self.uid, target="AGENTS.md")
-                    reply_agents = await client.send_message(reset_agents_cmd, timeout=120)
+                    reply_agents = await client.send_message(reset_agents_cmd, timeout=120, stage="claw.reset.agents")
                     log_event(
                         self.logger,
                         logging.DEBUG,
