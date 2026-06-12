@@ -24,10 +24,12 @@ import httpx
 import websockets
 
 try:
+    from .bridge_prompt_store import load_effective_bridge_prompt_templates, render_bridge_prompt_text
     from .gateway_health import fetch_remote_gateway_nodes, is_cloud_reachable_ws_url
     from .logging_utils import compact_text, log_event
     from .runtime_config import get_config_value
 except ImportError:
+    from bridge_prompt_store import load_effective_bridge_prompt_templates, render_bridge_prompt_text
     from gateway_health import fetch_remote_gateway_nodes, is_cloud_reachable_ws_url
     from logging_utils import compact_text, log_event
     from runtime_config import get_config_value
@@ -481,6 +483,18 @@ def build_bridge_injection_prompt_library(bridge_code: str) -> tuple[BridgeInjec
                 "```"
             ),
         ),
+    )
+
+
+def build_effective_bridge_injection_prompt_library(bridge_code: str) -> tuple[BridgeInjectionPrompt, ...]:
+    templates = load_effective_bridge_prompt_templates()
+    return tuple(
+        BridgeInjectionPrompt(
+            prompt_id=template.prompt_id,
+            text=render_bridge_prompt_text(template, bridge_code),
+            preferred_after=tuple(template.preferred_after),
+        )
+        for template in templates
     )
 
 
@@ -1396,7 +1410,7 @@ class AccountManager:
                     self.logger.info(f"发现可用宿主环境！尝试直接免重启挂载接入...")
                     if await self.connect_with_retry(client, max_retries=3, delay=5, create=False):
                         bridge_code = await get_bridge_code(self.uid)
-                        inject_prompts = build_bridge_injection_prompt_library(bridge_code)
+                        inject_prompts = build_effective_bridge_injection_prompt_library(bridge_code)
                         inject_ok = await self.inject_bridge_with_retry(
                             client,
                             inject_prompts,
@@ -1511,7 +1525,7 @@ class AccountManager:
                     # 5. 注入核心桥接通信脚本（带 /reset 重试 + WS 网关连通检测）
                     self.logger.info("正解析并注入 mimo2api bridge.py ...")
                     bridge_code = await get_bridge_code(self.uid)
-                    inject_prompts = build_bridge_injection_prompt_library(bridge_code)
+                    inject_prompts = build_effective_bridge_injection_prompt_library(bridge_code)
 
                     inject_ok = await self.inject_bridge_with_retry(
                         client,

@@ -30,7 +30,15 @@ MODEL_MAPPING_FILE = Path(__file__).parent.parent / "model_mapping.json"
 from .manager import start_manager_tasks, trigger_rebuild
 from .lifecycle_monitor import build_lifecycle_snapshot, lifecycle_monitor_worker, refresh_lifecycle_once
 from .log_reader import DEFAULT_LOGS_DIR, list_log_files, read_log_file
-from .logging_utils import apply_library_log_levels, parse_bool, resolve_log_level
+from .bridge_prompt_store import (
+    bridge_prompt_library_payload,
+    export_bridge_prompt_templates,
+    import_bridge_prompt_templates,
+    reset_bridge_prompt_templates,
+    save_bridge_prompt_templates,
+    summarize_bridge_prompt_templates,
+)
+from .logging_utils import apply_library_log_levels, log_event, parse_bool, resolve_log_level
 from .runtime_config import get_config_metadata, get_config_value, reload_runtime_config, sync_bridge_ws_env, update_runtime_config
 from .tunnel_supervisor import tunnel_supervisor
 
@@ -463,6 +471,55 @@ async def api_config_reload():
     reload_runtime_config()
     await tunnel_supervisor.restart()
     return JSONResponse(content={"ok": True, "config": get_config_metadata(), "tunnel": tunnel_supervisor.snapshot()})
+
+@app.get("/api/bridge-prompts")
+async def api_bridge_prompts_get():
+    return JSONResponse(content=bridge_prompt_library_payload())
+
+@app.put("/api/bridge-prompts")
+async def api_bridge_prompts_put(request: Request):
+    try:
+        body = await request.json()
+        templates = body.get("templates", body) if isinstance(body, dict) else body
+        log_event(
+            logger,
+            logging.INFO,
+            "bridge.prompts.save",
+            templates=summarize_bridge_prompt_templates(templates, text_limit=90),
+            text_limit=260,
+        )
+        return JSONResponse(content=save_bridge_prompt_templates(templates))
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"detail": f"保存注入模板库失败: {exc}"}, status_code=500)
+
+@app.post("/api/bridge-prompts/reset")
+async def api_bridge_prompts_reset():
+    log_event(logger, logging.INFO, "bridge.prompts.reset")
+    return JSONResponse(content=reset_bridge_prompt_templates())
+
+@app.post("/api/bridge-prompts/import")
+async def api_bridge_prompts_import(request: Request):
+    try:
+        body = await request.json()
+        templates = body.get("templates", body) if isinstance(body, dict) else body
+        log_event(
+            logger,
+            logging.INFO,
+            "bridge.prompts.import",
+            templates=summarize_bridge_prompt_templates(templates, text_limit=90),
+            text_limit=260,
+        )
+        return JSONResponse(content=import_bridge_prompt_templates(body))
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"detail": f"导入注入模板库失败: {exc}"}, status_code=500)
+
+@app.get("/api/bridge-prompts/export")
+async def api_bridge_prompts_export():
+    return JSONResponse(content=export_bridge_prompt_templates())
 
 @app.get("/api/tunnel/status")
 async def api_tunnel_status():

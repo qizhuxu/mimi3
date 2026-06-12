@@ -567,6 +567,13 @@
             gap: 2px;
         }
 
+        .nav-group-label {
+            margin: 12px 10px 4px;
+            color: rgba(255,255,255,0.44);
+            font-size: 11px;
+            font-weight: 750;
+        }
+
         .nav button {
             border-radius: 5px;
             min-height: 34px;
@@ -740,6 +747,191 @@
             min-width: 320px;
         }
 
+        .prompt-workbench {
+            display: grid;
+            grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+            min-height: 620px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .prompt-list-panel {
+            min-width: 0;
+            border-right: 1px solid var(--border);
+            background: #fbfcfd;
+        }
+
+        .prompt-list-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .prompt-list {
+            display: grid;
+        }
+
+        .prompt-row {
+            width: 100%;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            border: 0;
+            border-bottom: 1px solid var(--border);
+            border-radius: 0;
+            background: transparent;
+            color: var(--text);
+            text-align: left;
+            padding: 10px;
+        }
+
+        .prompt-row:hover,
+        .prompt-row.active {
+            background: #eef7f5;
+            color: var(--text);
+        }
+
+        .prompt-row.active {
+            box-shadow: inset 3px 0 0 var(--primary);
+        }
+
+        .prompt-row-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            font-weight: 750;
+        }
+
+        .prompt-row-title span:first-child {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .prompt-row-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .prompt-row-id {
+            color: var(--muted);
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 11px;
+            overflow-wrap: anywhere;
+        }
+
+        .prompt-order-actions {
+            display: grid;
+            gap: 4px;
+        }
+
+        .prompt-order-actions button {
+            min-height: 26px;
+            padding: 2px 7px;
+        }
+
+        .prompt-editor-panel {
+            min-width: 0;
+            padding: 12px;
+        }
+
+        .prompt-editor-grid {
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
+            gap: 10px;
+        }
+
+        .prompt-field-wide {
+            grid-column: 1 / -1;
+        }
+
+        .prompt-toggle-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+        }
+
+        .prompt-toggle-line input {
+            width: auto;
+            min-height: auto;
+        }
+
+        .prompt-check-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px 10px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: var(--surface-raised);
+        }
+
+        .prompt-check-grid label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            margin: 0;
+            color: #344054;
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .prompt-check-grid input {
+            width: auto;
+            min-height: auto;
+        }
+
+        .prompt-textarea {
+            min-height: 260px;
+        }
+
+        .prompt-preview {
+            max-height: 190px;
+            overflow: auto;
+            margin: 0;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: #101820;
+            color: #d7e3ee;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .validation-list {
+            display: none;
+            margin-bottom: 10px;
+            padding: 8px 10px;
+            border: 1px solid #e2aaa7;
+            border-radius: 5px;
+            background: #fff1f0;
+            color: var(--danger);
+            font-size: 12px;
+        }
+
+        .validation-list.has-errors {
+            display: block;
+        }
+
+        .modal.wide {
+            width: min(840px, 100%);
+        }
+
         .copy-button {
             min-width: 58px;
         }
@@ -861,6 +1053,8 @@
                 backdrop-filter: none;
             }
             .account-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .prompt-workbench { grid-template-columns: 1fr; }
+            .prompt-list-panel { border-right: 0; border-bottom: 1px solid var(--border); }
         }
 
         @media (max-width: 620px) {
@@ -869,6 +1063,16 @@
             .proxy-config-row { align-items: stretch; flex-direction: column; }
             .proxy-meta { justify-content: flex-start; }
             .status-line { align-items: flex-start; flex-direction: column; }
+            .prompt-editor-grid,
+            .prompt-check-grid {
+                grid-template-columns: 1fr;
+            }
+            .prompt-row {
+                grid-template-columns: 1fr;
+            }
+            .prompt-order-actions {
+                display: flex;
+            }
         }
     </style>
 </head>
@@ -896,9 +1100,13 @@
                 <div class="brand-subtitle">生命周期 / 隧道 / 配置中心</div>
             </div>
             <nav class="nav" id="nav">
+                <div class="nav-group-label">运行</div>
                 <button data-view="overview" class="active">总览</button>
                 <button data-view="lifecycle">生命周期</button>
                 <button data-view="accounts">账号管理</button>
+                <button data-view="webchat">网页反代</button>
+                <div class="nav-group-label">配置</div>
+                <button data-view="prompts">注入模板</button>
                 <button data-view="mapping">模型映射</button>
                 <button data-view="errors">错误日志</button>
                 <button data-view="tunnel">网关出口</button>
@@ -985,6 +1193,9 @@
                     </div>
                     <div class="section-body" id="usersTable">加载中...</div>
                 </div>
+            </section>
+
+            <section id="view-webchat" class="view">
                 <div class="section">
                     <div class="section-header">
                         <div class="section-title">
@@ -997,6 +1208,39 @@
                         </div>
                     </div>
                     <div class="section-body" id="webChatProxyPanel">加载中...</div>
+                </div>
+            </section>
+
+            <section id="view-prompts" class="view">
+                <div class="section">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <h2>Bridge 注入模板库</h2>
+                            <p id="bridgePromptMeta">加载中...</p>
+                        </div>
+                        <div class="inline-actions">
+                            <button onclick="addBridgePromptTemplate()">新增模板</button>
+                            <button onclick="openBridgePromptImport()">导入 JSON</button>
+                            <button onclick="exportBridgePrompts()">导出 JSON</button>
+                            <button class="danger" onclick="resetBridgePrompts()">恢复默认</button>
+                            <button class="primary" onclick="saveBridgePrompts()">保存</button>
+                        </div>
+                    </div>
+                    <div class="section-body">
+                        <div id="bridgePromptValidation" class="validation-list"></div>
+                        <div class="prompt-workbench">
+                            <div class="prompt-list-panel">
+                                <div class="prompt-list-head">
+                                    <span class="strong">模板</span>
+                                    <span id="bridgePromptCount" class="badge">0</span>
+                                </div>
+                                <div id="bridgePromptList" class="prompt-list"></div>
+                            </div>
+                            <div id="bridgePromptEditor" class="prompt-editor-panel">
+                                <div class="empty">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -1121,6 +1365,23 @@
         </div>
     </div>
 
+    <div id="bridgePromptJsonModal" class="modal-overlay">
+        <div class="modal wide">
+            <div class="modal-header"><h2 id="bridgePromptJsonTitle">模板 JSON</h2></div>
+            <div class="modal-body">
+                <div class="field">
+                    <label for="bridgePromptJsonText">JSON</label>
+                    <textarea id="bridgePromptJsonText" style="min-height:360px;"></textarea>
+                </div>
+                <div id="bridgePromptJsonResult" class="metric-note" style="margin-top:10px;"></div>
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeBridgePromptJsonModal()">关闭</button>
+                <button id="bridgePromptJsonImportBtn" class="primary" onclick="submitBridgePromptImport()">导入保存</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
 
     <script>
@@ -1139,6 +1400,9 @@
             mapping: {},
             config: null,
             tunnel: null,
+            bridgePrompts: null,
+            selectedBridgePromptId: '',
+            bridgePromptJsonMode: 'import',
             pollTimer: null,
             tickTimer: null,
             pollInFlight: false,
@@ -1149,6 +1413,8 @@
             overview: '总览',
             lifecycle: '生命周期',
             accounts: '账号管理',
+            webchat: '网页对话反代',
+            prompts: '注入模板库',
             mapping: '模型映射',
             errors: '错误日志',
             tunnel: '网关出口',
@@ -1321,6 +1587,8 @@
             if (view === 'overview') return loadOverview();
             if (view === 'lifecycle') return loadLifecycle(false);
             if (view === 'accounts') return loadUsers();
+            if (view === 'webchat') return loadUsers();
+            if (view === 'prompts') return loadBridgePrompts();
             if (view === 'mapping') return loadMappings();
             if (view === 'errors') return loadLogView();
             if (view === 'tunnel') return Promise.all([loadConfig(), loadTunnel()]);
@@ -1731,6 +1999,349 @@
                 showToast('已复制端点');
             } catch (err) {
                 showToast('复制失败', 'error');
+            }
+        }
+
+        function bridgePromptTemplates() {
+            return (state.bridgePrompts && Array.isArray(state.bridgePrompts.templates)) ? state.bridgePrompts.templates : [];
+        }
+
+        function bridgePromptPayloadForSave() {
+            return bridgePromptTemplates().map(template => ({
+                prompt_id: String(template.prompt_id || '').trim(),
+                name: String(template.name || '').trim(),
+                enabled: Boolean(template.enabled),
+                text: String(template.text || ''),
+                preferred_after: Array.isArray(template.preferred_after) ? template.preferred_after : [],
+                description: String(template.description || ''),
+                updated_at: String(template.updated_at || ''),
+            }));
+        }
+
+        function nowIsoSeconds() {
+            return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+        }
+
+        function failureClassLabel(value) {
+            const labels = {
+                dependency_install_refused: '依赖安装拒绝',
+                dependency_missing: '依赖缺失',
+                proxy_or_api_key_refused: '代理/API Key 拒绝',
+                manual_action_requested: '人工操作请求',
+                timeout: '超时',
+                generic_refusal: '通用拒绝',
+            };
+            return labels[value] || value;
+        }
+
+        function syncSelectedBridgePromptId() {
+            const templates = bridgePromptTemplates();
+            if (!templates.length) {
+                state.selectedBridgePromptId = '';
+                return;
+            }
+            if (!templates.some(template => template.prompt_id === state.selectedBridgePromptId)) {
+                state.selectedBridgePromptId = templates[0].prompt_id;
+            }
+        }
+
+        function selectedBridgePrompt() {
+            syncSelectedBridgePromptId();
+            return bridgePromptTemplates().find(template => template.prompt_id === state.selectedBridgePromptId) || null;
+        }
+
+        function redactPromptPreview(value) {
+            return String(value || '')
+                .replace(/(MIMO_API_KEY\s*=\s*)[^\s,;"']+/ig, '$1<redacted>')
+                .replace(/(MIMO_API_ENDPOINT\s*=\s*)[^\s,;"']+/ig, '$1<redacted>')
+                .replace(/(authorization\s*:\s*bearer\s+)[^\s,;"']+/ig, '$1<redacted>')
+                .replace(/((?:serviceToken|xiaomichatbot_ph|session_secret|webui_session)\s*=\s*)[^\s,;"']+/ig, '$1<redacted>');
+        }
+
+        function validateBridgePromptTemplates(templates = bridgePromptPayloadForSave()) {
+            const errors = [];
+            const seen = new Set();
+            const allowed = new Set((state.bridgePrompts?.allowed_failure_classes) || []);
+            templates.forEach((template, index) => {
+                const label = template.prompt_id || `#${index + 1}`;
+                if (!template.prompt_id) errors.push(`${label}: prompt_id 不能为空`);
+                if (template.prompt_id && !/^[A-Za-z0-9._:-]+$/.test(template.prompt_id)) errors.push(`${label}: prompt_id 只能包含字母、数字、点、下划线、冒号和短横线`);
+                if (template.prompt_id && seen.has(template.prompt_id)) errors.push(`${label}: prompt_id 重复`);
+                seen.add(template.prompt_id);
+                if (!String(template.text || '').trim()) errors.push(`${label}: 正文不能为空`);
+                (template.preferred_after || []).forEach(item => {
+                    if (!allowed.has(item)) errors.push(`${label}: unknown failure_class ${item}`);
+                });
+                if (/(MIMO_API_KEY\s*=\s*(?!<redacted>|\{)[^\s,;"']+)/i.test(template.text || '')) errors.push(`${label}: 正文包含疑似 MIMO_API_KEY 值`);
+                if (/((?:serviceToken|xiaomichatbot_ph|session_secret|webui_session)\s*=\s*(?!<redacted>|\{)[^\s,;"']+)/i.test(template.text || '')) errors.push(`${label}: 正文包含疑似会话凭证值`);
+            });
+            if (templates.length && !templates.some(template => template.enabled)) errors.push('至少保留一个启用模板');
+            return errors;
+        }
+
+        function renderBridgePromptValidation() {
+            const el = document.getElementById('bridgePromptValidation');
+            if (!el) return [];
+            const errors = validateBridgePromptTemplates();
+            el.classList.toggle('has-errors', errors.length > 0);
+            el.innerHTML = errors.map(escapeHtml).join('<br>');
+            return errors;
+        }
+
+        function renderBridgePromptList() {
+            const list = document.getElementById('bridgePromptList');
+            const count = document.getElementById('bridgePromptCount');
+            if (!list || !count) return;
+            const templates = bridgePromptTemplates();
+            count.textContent = `${templates.filter(template => template.enabled).length} / ${templates.length}`;
+            if (!templates.length) {
+                list.innerHTML = '<div class="empty">暂无模板</div>';
+                return;
+            }
+            list.innerHTML = templates.map((template, index) => {
+                const preferred = (template.preferred_after || []).map(failureClassLabel).join('、') || '通用';
+                return `
+                    <div class="prompt-row ${template.prompt_id === state.selectedBridgePromptId ? 'active' : ''}">
+                        <div role="button" tabindex="0" onclick="selectBridgePrompt(${escapeAttr(jsString(template.prompt_id))})">
+                            <div class="prompt-row-title">
+                                <span>${escapeHtml(template.name || template.prompt_id)}</span>
+                                ${badge(template.enabled ? '启用' : '停用', template.enabled ? 'success' : 'warn')}
+                            </div>
+                            <div class="prompt-row-id">${escapeHtml(template.prompt_id)}</div>
+                            <div class="prompt-row-meta">
+                                ${badge(preferred, 'info')}
+                                ${badge(template.source || 'runtime', template.source === 'builtin' ? '' : 'success')}
+                            </div>
+                        </div>
+                        <div class="prompt-order-actions">
+                            <button ${index === 0 ? 'disabled' : ''} onclick="moveBridgePrompt(${index}, -1)">上移</button>
+                            <button ${index === templates.length - 1 ? 'disabled' : ''} onclick="moveBridgePrompt(${index}, 1)">下移</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderBridgePromptPreview() {
+            const target = document.getElementById('bridgePromptPreview');
+            const template = selectedBridgePrompt();
+            if (!target || !template) return;
+            target.textContent = redactPromptPreview(String(template.text || '').replaceAll('{bridge_code}', 'BRIDGE_CODE_PREVIEW'));
+        }
+
+        function renderBridgePromptEditor() {
+            const editor = document.getElementById('bridgePromptEditor');
+            if (!editor) return;
+            const template = selectedBridgePrompt();
+            if (!template) {
+                editor.innerHTML = '<div class="empty">请选择模板</div>';
+                return;
+            }
+            const allowed = state.bridgePrompts?.allowed_failure_classes || [];
+            editor.innerHTML = `
+                <div class="prompt-editor-grid">
+                    <div class="field">
+                        <label for="bridgePromptId">prompt_id</label>
+                        <input id="bridgePromptId" value="${escapeHtml(template.prompt_id)}" oninput="updateBridgePromptField('prompt_id', this.value)">
+                    </div>
+                    <div class="field">
+                        <label for="bridgePromptName">名称</label>
+                        <input id="bridgePromptName" value="${escapeHtml(template.name || '')}" oninput="updateBridgePromptField('name', this.value)">
+                    </div>
+                    <div class="field">
+                        <label>状态</label>
+                        <label class="prompt-toggle-line">
+                            <input id="bridgePromptEnabled" type="checkbox" ${template.enabled ? 'checked' : ''} onchange="updateBridgePromptField('enabled', this.checked)">
+                            启用
+                        </label>
+                    </div>
+                    <div class="field">
+                        <label for="bridgePromptUpdatedAt">updated_at</label>
+                        <input id="bridgePromptUpdatedAt" value="${escapeHtml(template.updated_at || '')}" disabled>
+                    </div>
+                    <div class="field prompt-field-wide">
+                        <label for="bridgePromptDescription">描述</label>
+                        <textarea id="bridgePromptDescription" style="min-height:72px;" oninput="updateBridgePromptField('description', this.value)">${escapeHtml(template.description || '')}</textarea>
+                    </div>
+                    <div class="field prompt-field-wide">
+                        <label>preferred_after</label>
+                        <div class="prompt-check-grid">
+                            ${allowed.map(item => `
+                                <label>
+                                    <input data-prompt-failure value="${escapeHtml(item)}" type="checkbox" ${(template.preferred_after || []).includes(item) ? 'checked' : ''} onchange="updateBridgePromptPreferredAfter()">
+                                    ${escapeHtml(failureClassLabel(item))}
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="field prompt-field-wide">
+                        <label for="bridgePromptText">正文</label>
+                        <textarea id="bridgePromptText" class="prompt-textarea" oninput="updateBridgePromptText(this.value)">${escapeHtml(template.text || '')}</textarea>
+                    </div>
+                    <div class="field prompt-field-wide">
+                        <label>预览</label>
+                        <pre id="bridgePromptPreview" class="prompt-preview"></pre>
+                    </div>
+                </div>
+            `;
+            renderBridgePromptPreview();
+        }
+
+        function renderBridgePrompts() {
+            const meta = document.getElementById('bridgePromptMeta');
+            if (meta && state.bridgePrompts) {
+                const mode = state.bridgePrompts.using_defaults ? '默认库' : '运行时配置';
+                meta.textContent = `${mode} / 启用 ${state.bridgePrompts.active_count || 0} / 默认 ${state.bridgePrompts.defaults_count || 0}`;
+            }
+            syncSelectedBridgePromptId();
+            renderBridgePromptList();
+            renderBridgePromptEditor();
+            renderBridgePromptValidation();
+        }
+
+        function selectBridgePrompt(promptId) {
+            state.selectedBridgePromptId = String(promptId || '');
+            renderBridgePromptList();
+            renderBridgePromptEditor();
+        }
+
+        function touchBridgePrompt(template) {
+            template.updated_at = nowIsoSeconds();
+        }
+
+        function updateBridgePromptField(field, value) {
+            const template = selectedBridgePrompt();
+            if (!template) return;
+            template[field] = value;
+            touchBridgePrompt(template);
+            if (field === 'prompt_id') state.selectedBridgePromptId = String(value || '').trim();
+            const updatedAt = document.getElementById('bridgePromptUpdatedAt');
+            if (updatedAt) updatedAt.value = template.updated_at;
+            renderBridgePromptList();
+            renderBridgePromptValidation();
+        }
+
+        function updateBridgePromptText(value) {
+            const template = selectedBridgePrompt();
+            if (!template) return;
+            template.text = value;
+            touchBridgePrompt(template);
+            const updatedAt = document.getElementById('bridgePromptUpdatedAt');
+            if (updatedAt) updatedAt.value = template.updated_at;
+            renderBridgePromptPreview();
+            renderBridgePromptValidation();
+        }
+
+        function updateBridgePromptPreferredAfter() {
+            const template = selectedBridgePrompt();
+            if (!template) return;
+            template.preferred_after = Array.from(document.querySelectorAll('[data-prompt-failure]:checked')).map(item => item.value);
+            touchBridgePrompt(template);
+            const updatedAt = document.getElementById('bridgePromptUpdatedAt');
+            if (updatedAt) updatedAt.value = template.updated_at;
+            renderBridgePromptList();
+            renderBridgePromptValidation();
+        }
+
+        function moveBridgePrompt(index, delta) {
+            const templates = bridgePromptTemplates();
+            const target = index + delta;
+            if (target < 0 || target >= templates.length) return;
+            [templates[index], templates[target]] = [templates[target], templates[index]];
+            renderBridgePromptList();
+        }
+
+        function addBridgePromptTemplate() {
+            const templates = bridgePromptTemplates();
+            const suffix = Date.now().toString(36);
+            const promptId = `custom.bridge.${suffix}`;
+            templates.push({
+                prompt_id: promptId,
+                name: '自定义模板',
+                enabled: true,
+                text: '请在当前环境启动 bridge：\n```python\n{bridge_code}\n```',
+                preferred_after: [],
+                description: '',
+                updated_at: nowIsoSeconds(),
+                source: 'runtime',
+            });
+            state.selectedBridgePromptId = promptId;
+            renderBridgePrompts();
+        }
+
+        async function loadBridgePrompts() {
+            state.bridgePrompts = await fetchJson('/api/bridge-prompts');
+            renderBridgePrompts();
+        }
+
+        async function saveBridgePrompts() {
+            const errors = renderBridgePromptValidation();
+            if (errors.length) return showToast('模板校验未通过', 'error');
+            const data = await fetchJson('/api/bridge-prompts', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ templates: bridgePromptPayloadForSave() }),
+            });
+            state.bridgePrompts = data;
+            syncSelectedBridgePromptId();
+            renderBridgePrompts();
+            showToast('模板库已保存', 'success');
+        }
+
+        async function resetBridgePrompts() {
+            state.bridgePrompts = await fetchJson('/api/bridge-prompts/reset', { method: 'POST' });
+            syncSelectedBridgePromptId();
+            renderBridgePrompts();
+            showToast('已恢复默认模板', 'success');
+        }
+
+        function openBridgePromptImport() {
+            state.bridgePromptJsonMode = 'import';
+            document.getElementById('bridgePromptJsonTitle').textContent = '导入模板 JSON';
+            document.getElementById('bridgePromptJsonText').readOnly = false;
+            document.getElementById('bridgePromptJsonText').value = '';
+            document.getElementById('bridgePromptJsonResult').textContent = '';
+            document.getElementById('bridgePromptJsonImportBtn').classList.remove('hidden');
+            document.getElementById('bridgePromptJsonModal').classList.add('active');
+        }
+
+        async function exportBridgePrompts() {
+            const data = await fetchJson('/api/bridge-prompts/export');
+            state.bridgePromptJsonMode = 'export';
+            document.getElementById('bridgePromptJsonTitle').textContent = '导出模板 JSON';
+            document.getElementById('bridgePromptJsonText').readOnly = true;
+            document.getElementById('bridgePromptJsonText').value = JSON.stringify(data, null, 2);
+            document.getElementById('bridgePromptJsonResult').textContent = '';
+            document.getElementById('bridgePromptJsonImportBtn').classList.add('hidden');
+            document.getElementById('bridgePromptJsonModal').classList.add('active');
+        }
+
+        function closeBridgePromptJsonModal() {
+            document.getElementById('bridgePromptJsonModal').classList.remove('active');
+        }
+
+        async function submitBridgePromptImport() {
+            const rawText = document.getElementById('bridgePromptJsonText').value;
+            let payload;
+            try {
+                payload = JSON.parse(rawText);
+            } catch (err) {
+                document.getElementById('bridgePromptJsonResult').textContent = 'JSON 解析失败';
+                return showToast('JSON 解析失败', 'error');
+            }
+            try {
+                state.bridgePrompts = await fetchJson('/api/bridge-prompts/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                syncSelectedBridgePromptId();
+                renderBridgePrompts();
+                closeBridgePromptJsonModal();
+                showToast('模板库已导入', 'success');
+            } catch (err) {
+                document.getElementById('bridgePromptJsonResult').textContent = err.message || '导入失败';
+                showToast(err.message || '导入失败', 'error');
             }
         }
 
@@ -2158,6 +2769,7 @@
                 loadMappings(),
                 loadConfig(),
                 loadTunnel(),
+                loadBridgePrompts(),
             ]);
         }
 
@@ -2170,6 +2782,7 @@
                 state.pollInFlight = true;
                 const tasks = [loadOverview()];
                 if (state.activeView === 'accounts') tasks.push(loadUsers());
+                if (state.activeView === 'webchat') tasks.push(loadUsers());
                 if (state.activeView === 'lifecycle') tasks.push(loadLifecycle(false));
                 if (state.activeView === 'tunnel') tasks.push(loadTunnel());
                 Promise.allSettled(tasks).finally(() => {

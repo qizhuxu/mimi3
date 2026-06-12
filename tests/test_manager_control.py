@@ -59,6 +59,11 @@ class ManagerControlApiTests(unittest.TestCase):
         self.assertIn(("/api/manager/status", "GET"), paths)
         self.assertIn(("/api/manager/start", "POST"), paths)
         self.assertIn(("/api/manager/stop", "POST"), paths)
+        self.assertIn(("/api/bridge-prompts", "GET"), paths)
+        self.assertIn(("/api/bridge-prompts", "PUT"), paths)
+        self.assertIn(("/api/bridge-prompts/reset", "POST"), paths)
+        self.assertIn(("/api/bridge-prompts/import", "POST"), paths)
+        self.assertIn(("/api/bridge-prompts/export", "GET"), paths)
 
     def test_start_manager_is_idempotent_and_stop_cancels_only_local_task(self):
         self.assertTrue(hasattr(self.web_service, "start_manager_background"))
