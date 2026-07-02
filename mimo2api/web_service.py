@@ -27,7 +27,7 @@ except ImportError:
 MODEL_MAPPING_FILE = Path(__file__).parent.parent / "model_mapping.json"
 
 # 引入 Manager 长驻协程任务
-from .manager import start_manager_tasks, trigger_rebuild
+from .manager import start_manager_tasks
 from .lifecycle_monitor import build_lifecycle_snapshot, lifecycle_monitor_worker, refresh_lifecycle_once
 from .log_reader import DEFAULT_LOGS_DIR, list_log_files, read_log_file
 from .bridge_prompt_store import (
@@ -425,14 +425,6 @@ class ForwardAttempt:
     first_msg: dict[str, Any]
     attempt_number: int
 
-@app.post("/api/rebuild")
-async def api_rebuild(request: Request):
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
-    uid = str(body.get("uid") or "").strip() if isinstance(body, dict) else ""
-    trigger_rebuild(uid or None)
-    message = f"账号 {uid} 重建信号已发送" if uid else "滚动重建信号已发送，账号将按并行上限分批重建"
-    return JSONResponse(content={"ok": True, "uid": uid or None, "message": message})
-
 @app.get("/api/manager/status")
 async def api_manager_status():
     return JSONResponse(content=manager_task_status())
@@ -552,14 +544,6 @@ async def api_lifecycle_status(refresh: bool = False):
     else:
         snapshot = build_lifecycle_snapshot()
     return JSONResponse(content=snapshot)
-
-@app.post("/api/lifecycle/rebuild")
-async def api_lifecycle_rebuild(request: Request):
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
-    uid = str(body.get("uid") or "").strip() if isinstance(body, dict) else ""
-    trigger_rebuild(uid or None)
-    message = f"账号 {uid} 重建信号已发送" if uid else "滚动重建信号已发送"
-    return JSONResponse(content={"ok": True, "uid": uid or None, "lifecycle_status": "rebuild_pending", "message": message})
 
 @app.get("/api/status/history")
 async def api_status_history(hours: int = 24):

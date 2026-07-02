@@ -213,81 +213,6 @@ class WebSocketHealthTests(unittest.TestCase):
             logging.getLogger("Acc-test-uid-remote").disabled = False
             manager_module.fetch_remote_gateway_nodes = original
 
-    def test_manager_blocks_rebuild_while_local_bridge_is_not_stale(self):
-        import asyncio
-        import logging
-        import mimo2api.manager as manager_module
-        from mimo2api.gateway_state import state
-
-        now = time.time()
-        state.node_to_ws["uid-local"] = object()
-        state.node_last_seen_at["uid-local"] = now - 20
-        logging.getLogger("Acc-test-uid-local").disabled = True
-        try:
-            manager = manager_module.AccountManager("uid-local", {"userId": "uid-local", "name": "test"})
-            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-local", now=now, node_stale_seconds=90)))
-
-            state.node_last_seen_at["uid-local"] = now - 91
-            self.assertTrue(asyncio.run(manager._bridge_rebuild_allowed("uid-local", now=now, node_stale_seconds=90)))
-        finally:
-            logging.getLogger("Acc-test-uid-local").disabled = False
-
-    def test_manager_blocks_rebuild_while_remote_bridge_is_not_stale(self):
-        import asyncio
-        import logging
-        import mimo2api.manager as manager_module
-        from mimo2api.gateway_health import NodePresence
-
-        now = time.time()
-        remote_last_seen = now - 20
-
-        async def fake_fetch_remote_gateway_nodes():
-            return {
-                "uid-remote": NodePresence(
-                    uid="uid-remote",
-                    source="remote",
-                    last_seen_at=remote_last_seen,
-                    source_url="https://gateway.example.com/api/stats",
-                )
-            }, {"url": "https://gateway.example.com/api/stats", "error": ""}
-
-        original = manager_module.fetch_remote_gateway_nodes
-        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
-        logging.getLogger("Acc-test-uid-remote").disabled = True
-        try:
-            manager = manager_module.AccountManager("uid-remote", {"userId": "uid-remote", "name": "test"})
-            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-remote", now=now, node_stale_seconds=90)))
-
-            remote_last_seen = now - 91
-            self.assertTrue(asyncio.run(manager._bridge_rebuild_allowed("uid-remote", now=now, node_stale_seconds=90)))
-        finally:
-            logging.getLogger("Acc-test-uid-remote").disabled = False
-            manager_module.fetch_remote_gateway_nodes = original
-
-    def test_manager_blocks_rebuild_when_remote_gateway_identity_is_ambiguous(self):
-        import asyncio
-        import logging
-        import mimo2api.manager as manager_module
-
-        async def fake_fetch_remote_gateway_nodes():
-            return {}, {
-                "url": "https://gateway.example.com/api/stats",
-                "error": "",
-                "active_clients": "4",
-                "identified_nodes": "0",
-                "unknown_nodes": "4",
-            }
-
-        original = manager_module.fetch_remote_gateway_nodes
-        manager_module.fetch_remote_gateway_nodes = fake_fetch_remote_gateway_nodes
-        logging.getLogger("Acc-test-uid-unknown").disabled = True
-        try:
-            manager = manager_module.AccountManager("uid-unknown", {"userId": "uid-unknown", "name": "test"})
-            self.assertFalse(asyncio.run(manager._bridge_rebuild_allowed("uid-unknown", now=time.time(), node_stale_seconds=90)))
-        finally:
-            logging.getLogger("Acc-test-uid-unknown").disabled = False
-            manager_module.fetch_remote_gateway_nodes = original
-
     def test_manager_skips_injection_when_remote_gateway_has_only_unknown_nodes(self):
         import asyncio
         import logging
@@ -457,6 +382,8 @@ class WebSocketHealthTests(unittest.TestCase):
         cases = [
             ("我的安全策略禁止执行 pip install 等安装命令", "dependency_install_refused"),
             ("ModuleNotFoundError: No module named 'websockets'", "dependency_missing"),
+            ("缺失模块：websockets 和 httpx。", "dependency_missing"),
+            ("DEPENDENCY_MISSING modules=websockets,httpx", "dependency_missing"),
             ("它用本机 API Key 代理外部请求，本质是把凭据暴露给第三方，我不会执行", "proxy_or_api_key_refused"),
             ("请你手动运行命令，安装完成后告诉我", "manual_action_requested"),
             ("(等待最终态回复超时)", "timeout"),
@@ -568,6 +495,14 @@ class WebSocketHealthTests(unittest.TestCase):
 
         self.assertEqual(wait_timeouts[0], manager_module.BRIDGE_REFUSAL_NODE_WAIT_SECONDS)
 
+    def test_bridge_injection_uses_short_node_wait_after_dependency_missing(self):
+        from mimo2api.manager import BRIDGE_REFUSAL_NODE_WAIT_SECONDS, _bridge_node_wait_timeout
+
+        self.assertEqual(
+            _bridge_node_wait_timeout(("dependency_missing",), 90),
+            BRIDGE_REFUSAL_NODE_WAIT_SECONDS,
+        )
+
     def test_bridge_injection_logs_send_and_node_wait_stages(self):
         import asyncio
         import logging
@@ -609,134 +544,3 @@ class WebSocketHealthTests(unittest.TestCase):
         self.assertIn("bridge.inject.node_wait.done", raw_logs)
 
 
-class ManagerLifecycleConfigTests(unittest.TestCase):
-    def setUp(self):
-        import mimo2api.manager as manager_module
-
-        self.manager_module = manager_module
-        self.original_get_config_value = manager_module.get_config_value
-        self.original_rebuild_runtime_limits = manager_module.rebuild_runtime_limits
-        self.original_current_available_nodes = manager_module.current_available_nodes
-        self.original_active_rebuilds = manager_module._active_rebuilds
-        manager_module._rebuild_events.clear()
-        manager_module._known_manager_uids.clear()
-        manager_module.rebuild_event.clear()
-        manager_module._active_rebuilds = 0
-
-    def tearDown(self):
-        self.manager_module.get_config_value = self.original_get_config_value
-        self.manager_module.rebuild_runtime_limits = self.original_rebuild_runtime_limits
-        self.manager_module.current_available_nodes = self.original_current_available_nodes
-        self.manager_module._active_rebuilds = self.original_active_rebuilds
-        self.manager_module._rebuild_events.clear()
-        self.manager_module._known_manager_uids.clear()
-        self.manager_module.rebuild_event.clear()
-
-    def test_lifecycle_start_timing_allows_zero_stagger_window(self):
-        values = {
-            "lifecycle.initial_stagger_window_seconds": 0,
-            "lifecycle.fast_start_count": 1,
-        }
-        self.manager_module.get_config_value = lambda key, default=None: values.get(key, default)
-
-        delays, offsets = self.manager_module.lifecycle_start_timing(3)
-
-        self.assertEqual(delays, [0.0, 0.0, 0.0])
-        self.assertEqual(offsets, [0, 0, 0])
-
-    def test_lifecycle_start_timing_handles_single_account(self):
-        values = {
-            "lifecycle.initial_stagger_window_seconds": 600,
-            "lifecycle.fast_start_count": 1,
-        }
-        self.manager_module.get_config_value = lambda key, default=None: values.get(key, default)
-
-        delays, offsets = self.manager_module.lifecycle_start_timing(1)
-
-        self.assertEqual(delays, [0.0])
-        self.assertEqual(offsets, [0])
-
-    def test_lifecycle_start_timing_caps_fast_start_count_to_total_users(self):
-        values = {
-            "lifecycle.initial_stagger_window_seconds": 600,
-            "lifecycle.fast_start_count": 5,
-        }
-        self.manager_module.get_config_value = lambda key, default=None: values.get(key, default)
-
-        delays, offsets = self.manager_module.lifecycle_start_timing(2)
-
-        self.assertEqual(delays, [0.0, 30.0])
-        self.assertEqual(offsets, [0, 30])
-
-    def test_rebuild_runtime_limits_allow_zero_min_available_nodes(self):
-        values = {
-            "lifecycle.max_parallel_rebuilds": 2,
-            "lifecycle.min_available_nodes": 0,
-            "lifecycle.rebuild_wait_seconds": 0,
-        }
-        self.manager_module.get_config_value = lambda key, default=None: values.get(key, default)
-
-        self.assertEqual(self.manager_module.rebuild_runtime_limits(), (2, 0, 5))
-
-    def test_trigger_rebuild_targets_single_account(self):
-        self.manager_module._known_manager_uids.update({"uid-a", "uid-b"})
-
-        self.manager_module.trigger_rebuild("uid-a")
-
-        self.assertTrue(self.manager_module._rebuild_event_for("uid-a").is_set())
-        self.assertFalse(self.manager_module._rebuild_event_for("uid-b").is_set())
-        self.assertFalse(self.manager_module.rebuild_event.is_set())
-
-    def test_trigger_rebuild_without_uid_fans_out_to_known_accounts(self):
-        self.manager_module._known_manager_uids.update({"uid-a", "uid-b"})
-
-        self.manager_module.trigger_rebuild()
-
-        self.assertTrue(self.manager_module._rebuild_event_for("uid-a").is_set())
-        self.assertTrue(self.manager_module._rebuild_event_for("uid-b").is_set())
-        self.assertFalse(self.manager_module.rebuild_event.is_set())
-
-    def test_rebuild_lease_enforces_parallel_limit(self):
-        import asyncio
-        import logging
-
-        async def scenario():
-            self.manager_module.rebuild_runtime_limits = lambda: (1, 0, 0)
-            self.manager_module.current_available_nodes = lambda exclude_uid=None: 0
-            logger = logging.getLogger("test-rebuild-lease-limit")
-            first = self.manager_module.RebuildLease("uid-a", logger)
-            second = self.manager_module.RebuildLease("uid-b", logger)
-
-            await first.__aenter__()
-            second_task = asyncio.create_task(second.__aenter__())
-            await asyncio.sleep(0.01)
-            self.assertFalse(second_task.done())
-
-            await first.__aexit__(None, None, None)
-            await asyncio.wait_for(second_task, timeout=1)
-            await second.__aexit__(None, None, None)
-
-        asyncio.run(scenario())
-
-    def test_rebuild_lease_waits_for_min_available_nodes(self):
-        import asyncio
-        import logging
-
-        available_nodes = 0
-
-        async def scenario():
-            nonlocal available_nodes
-            self.manager_module.rebuild_runtime_limits = lambda: (1, 1, 0)
-            self.manager_module.current_available_nodes = lambda exclude_uid=None: available_nodes
-            logger = logging.getLogger("test-rebuild-lease-waterline")
-            lease = self.manager_module.RebuildLease("uid-a", logger, require_waterline=True)
-
-            lease_task = asyncio.create_task(lease.__aenter__())
-            await asyncio.sleep(0.01)
-            self.assertFalse(lease_task.done())
-
-            available_nodes = 1
-            await asyncio.wait_for(lease_task, timeout=1)
-            await lease.__aexit__(None, None, None)
-
-        asyncio.run(scenario())

@@ -32,6 +32,13 @@ users/
 CLAUDE.md
 .agents/
 .claude/
+.cursor/
+.trellis/
 skills-lock.json
 .superpowers/
 docs/
+
+# 临时文件和备份
+*.bak
+_fix_*.py
+tests/test_webui_logs.py

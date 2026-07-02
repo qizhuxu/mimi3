@@ -16,8 +16,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 USERS_DIR = ROOT_DIR / "users"
 BASE_URL = "https://aistudio.xiaomimimo.com"
 
-_auto_rebuild_last_at = 0.0
-
 
 def _aistudio_headers() -> dict[str, str]:
     return {
@@ -80,7 +78,6 @@ def _status_display(status: str) -> str:
     return {
         "not_configured": "未配置",
         "credential_expired": "凭证失效",
-        "cloud_destroyed": "云端已销毁",
         "cloud_unavailable": "云端不可用",
         "cloud_available_bridge_missing": "云端可用但未接入",
         "bridge_online": "健康",
@@ -88,18 +85,8 @@ def _status_display(status: str) -> str:
         "bridge_ambiguous": "外网节点未识别",
         "cooling_down": "冷却中",
         "expiring_soon": "即将过期",
-        "rebuild_pending": "重建中",
         "unknown": "未知",
     }.get(status, "未知")
-
-
-def _rebuild_pending() -> bool:
-    try:
-        from .manager import rebuild_event
-
-        return rebuild_event.is_set()
-    except Exception:
-        return False
 
 
 def classify_lifecycle(
@@ -115,8 +102,6 @@ def classify_lifecycle(
         return "not_configured"
     if cloud_status == "EXPIRED(401)":
         return "credential_expired"
-    if _rebuild_pending():
-        return "rebuild_pending"
     if cooldown_remaining_seconds > 0:
         return "cooling_down"
     if bridge_status == "ambiguous":
@@ -127,8 +112,6 @@ def classify_lifecycle(
         return "expiring_soon" if 0 < remain_sec <= 300 else "bridge_online"
     if cloud_status == "AVAILABLE":
         return "cloud_available_bridge_missing"
-    if cloud_status == "DESTROYED":
-        return "cloud_destroyed"
     if cloud_status and cloud_status not in {"UNKNOWN", "ERROR"}:
         return "cloud_unavailable"
     return "unknown"
@@ -259,7 +242,6 @@ async def refresh_lifecycle_once() -> dict[str, Any]:
     state.remote_gateway = remote_meta
     state.lifecycle_last_refreshed_at = now
     snapshot = build_lifecycle_snapshot()
-    await maybe_trigger_auto_rebuild(snapshot)
     return snapshot
 
 
@@ -290,28 +272,11 @@ def build_lifecycle_snapshot() -> dict[str, Any]:
     }
 
 
-async def maybe_trigger_auto_rebuild(snapshot: dict[str, Any]) -> None:
-    global _auto_rebuild_last_at
-    if not bool(get_config_value("lifecycle.auto_rebuild", False)):
-        return
-    threshold = max(1, int(get_config_value("lifecycle.auto_rebuild_failures", 3) or 3))
-    now = time.time()
-    if now - _auto_rebuild_last_at < 300:
-        return
-    for row in snapshot.get("accounts", []):
-        if int(row.get("consecutive_failures", 0) or 0) >= threshold:
-            from .manager import trigger_rebuild
-
-            trigger_rebuild(str(row.get("uid") or "") or None)
-            _auto_rebuild_last_at = now
-            return
-
-
 async def lifecycle_monitor_worker() -> None:
     while True:
         try:
             await refresh_lifecycle_once()
-            interval = max(5, int(get_config_value("lifecycle.monitor_interval_seconds", 30) or 30))
+            interval = max(5, int(get_config_value("lifecycle.monitor_interval_seconds", 300) or 300))
             await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise

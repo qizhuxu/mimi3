@@ -24,8 +24,17 @@ class BridgePromptStoreTests(unittest.TestCase):
 
         templates = default_bridge_prompt_templates()
 
-        self.assertGreaterEqual(len(templates), 5)
-        self.assertIn("bridge.v1.standard", {template.prompt_id for template in templates})
+        self.assertEqual(len(templates), 5)
+        self.assertEqual(
+            [template.prompt_id for template in templates],
+            [
+                "bridge.v1.standard",
+                "bridge.v1.existing_deps",
+                "bridge.v1.no_install_after_dependency_refusal",
+                "bridge.v1.connector_scope",
+                "bridge.v1.relay_ready_self_check",
+            ],
+        )
         for template in templates:
             with self.subTest(prompt_id=template.prompt_id):
                 self.assertTrue(template.prompt_id)
@@ -39,6 +48,26 @@ class BridgePromptStoreTests(unittest.TestCase):
         rendered = render_bridge_prompt_text(templates[0], "BRIDGE_CODE")
         self.assertIn("BRIDGE_CODE", rendered)
         self.assertNotIn("{bridge_code}", rendered)
+
+    def test_default_templates_make_v1_dependencies_explicit(self):
+        from mimo2api.bridge_prompt_store import default_bridge_prompt_templates
+
+        templates = {template.prompt_id: template for template in default_bridge_prompt_templates()}
+
+        self.assertIn("Bridge v1 运行前置条件", templates["bridge.v1.standard"].text)
+        self.assertIn("DEPENDENCY_MISSING", templates["bridge.v1.standard"].text)
+        self.assertIn("STARTED_BRIDGE_V1", templates["bridge.v1.standard"].text)
+        self.assertIn("{bridge_code}", templates["bridge.v1.standard"].text)
+
+        unavailable = templates["bridge.v1.no_install_after_dependency_refusal"]
+        self.assertIn("DEPENDENCY_UNAVAILABLE", unavailable.text)
+        self.assertIn("STARTED_BRIDGE_V1", unavailable.text)
+        self.assertIn("缺失时不要运行 bridge v1", unavailable.text)
+        self.assertIn("{bridge_code}", unavailable.text)
+
+        connector = templates["bridge.v1.connector_scope"]
+        self.assertIn("Bridge v1 仍然需要 websockets/httpx", connector.text)
+        self.assertIn("DEPENDENCY_MISSING", connector.text)
 
     def test_save_load_and_reset_template_library(self):
         from mimo2api.bridge_prompt_store import (

@@ -386,6 +386,22 @@
             flex-wrap: wrap;
         }
 
+        .check-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 32px;
+            color: var(--muted);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .check-control input {
+            width: auto;
+            min-height: auto;
+            margin: 0;
+        }
+
         .split {
             display: grid;
             grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
@@ -1172,7 +1188,6 @@
                         <div class="inline-actions">
                             <label class="inline-actions"><input id="abnormalOnly" type="checkbox" style="width:auto; min-height:auto;" onchange="renderLifecycle()"> 只看异常</label>
                             <button onclick="loadLifecycle(true)">刷新</button>
-                            <button class="primary" onclick="triggerLifecycleRebuild()">滚动重建</button>
                         </div>
                     </div>
                     <div class="section-body" id="lifecycleTable">加载中...</div>
@@ -1276,6 +1291,10 @@
                             <input id="logKeywordInput" style="width:180px;" placeholder="关键词" onkeydown="if(event.key==='Enter') loadRuntimeLogs(false)">
                             <input id="logLimitInput" type="number" min="1" max="1000" value="200" style="width:92px;">
                             <button onclick="loadRuntimeLogs(true)">刷新</button>
+                            <label class="check-control" title="每 3 秒刷新当前日志">
+                                <input id="logAutoRefresh" type="checkbox" onchange="toggleLogAutoRefresh(this.checked)">
+                                自动刷新
+                            </label>
                         </div>
                     </div>
                     <div class="section-body" id="runtimeLogs">加载中...</div>
@@ -1397,6 +1416,8 @@
             errors: [],
             logFiles: [],
             runtimeLog: null,
+            logAutoRefreshTimer: null,
+            logAutoRefreshInFlight: false,
             mapping: {},
             config: null,
             tunnel: null,
@@ -1804,9 +1825,7 @@
                 credential_expired: '凭证失效',
                 bridge_stale: '桥接失联',
                 bridge_ambiguous: '外网节点未识别',
-                cloud_destroyed: '云端已销毁',
                 cloud_unavailable: '云端不可用',
-                rebuild_pending: '重建中',
                 not_configured: '未配置',
                 unknown: '未知',
             };
@@ -1845,28 +1864,13 @@
                             <td><div>pending ${fmtNumber(row.pending_requests)}</div><div class="muted">冷却 ${countdownHtml(row.cooldown_remaining_seconds || 0, '0 秒')}</div></td>
                             <td>${lifecycleBadge(row.lifecycle_status)}<div class="muted">连续异常 ${fmtNumber(row.consecutive_failures)}</div></td>
                             <td class="mono">${escapeHtml(row.last_error || '-')}</td>
-                            <td><button onclick="triggerLifecycleRebuild(${escapeAttr(jsString(row.uid))})">重建此账号</button></td>
+                            
                         </tr>
                     `).join('')}
                     </tbody>
                 </table></div>
             `;
             refreshRuntimeCountdowns();
-        }
-
-        async function triggerLifecycleRebuild(uid = '') {
-            const target = String(uid || '').trim();
-            const message = target
-                ? `确定触发账号 ${target} 重建？该账号会进入滚动重建队列。`
-                : '确定触发所有账号滚动重建？系统会按并行上限分批执行。';
-            if (!confirm(message)) return;
-            await fetchJson('/api/lifecycle/rebuild', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(target ? { uid: target } : {}),
-            });
-            showToast(target ? `账号 ${target} 重建信号已发送` : '滚动重建信号已发送');
-            await loadLifecycle(true);
         }
 
         function webChatUid(user) {
@@ -2533,6 +2537,38 @@
             }
         }
 
+        function scrollRuntimeLogToBottom() {
+            const viewer = document.getElementById('runtimeLogViewer');
+            if (viewer) viewer.scrollTop = viewer.scrollHeight;
+        }
+
+        function stopLogAutoRefresh() {
+            if (state.logAutoRefreshTimer) clearInterval(state.logAutoRefreshTimer);
+            state.logAutoRefreshTimer = null;
+            state.logAutoRefreshInFlight = false;
+            const checkbox = document.getElementById('logAutoRefresh');
+            if (checkbox) checkbox.checked = false;
+        }
+
+        function toggleLogAutoRefresh(enabled) {
+            if (!enabled) {
+                stopLogAutoRefresh();
+                return;
+            }
+            if (state.logAutoRefreshTimer) clearInterval(state.logAutoRefreshTimer);
+            state.logAutoRefreshTimer = setInterval(async () => {
+                if (state.activeView !== 'errors' || state.logAutoRefreshInFlight) return;
+                if (document.getElementById('appShell').classList.contains('hidden')) return;
+                state.logAutoRefreshInFlight = true;
+                try {
+                    await loadRuntimeLogs(false);
+                } finally {
+                    state.logAutoRefreshInFlight = false;
+                }
+            }, 3000);
+            loadRuntimeLogs(false);
+        }
+
         function renderRuntimeLogs() {
             const target = document.getElementById('runtimeLogs');
             if (!target) return;
@@ -2546,8 +2582,9 @@
                 <div class="metric-note" style="margin-bottom:8px;">
                     ${escapeHtml(payload.file || '')} · 匹配 ${fmtNumber(payload.total_matched || 0)} · 显示 ${fmtNumber(payload.count || 0)}
                 </div>
-                <pre class="log-viewer">${escapeHtml(lines.join('\n'))}</pre>
+                <pre id="runtimeLogViewer" class="log-viewer">${escapeHtml(lines.join('\n'))}</pre>
             `;
+            requestAnimationFrame(scrollRuntimeLogToBottom);
         }
 
         async function loadErrors() {
@@ -2795,6 +2832,7 @@
         function stopPolling() {
             if (state.pollTimer) clearInterval(state.pollTimer);
             if (state.tickTimer) clearInterval(state.tickTimer);
+            stopLogAutoRefresh();
             state.pollTimer = null;
             state.tickTimer = null;
             state.pollInFlight = false;
