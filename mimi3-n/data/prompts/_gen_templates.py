@@ -5,7 +5,7 @@ PromptStore.get() 时从 data/deploy_env.json（或 env var）替换——这样
 1. retry 模板自包含（不再"env 同上一轮"假假设 → TUNNEL_TOKEN 空）
 2. 真实 token/key 移出可提交的 templates.json，进 data/deploy_env.json（gitignored）
 
-跑：python prompts/_gen_templates.py
+跑：python data/prompts/_gen_templates.py
 """
 import json
 from pathlib import Path

@@ -22,21 +22,21 @@ from pathlib import Path
 
 # ----------------- 配置 -----------------
 
-_SRC = Path(__file__).resolve().parent
+_SRC = Path(__file__).resolve().parent.parent / "src"  # test/../src/
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from claw_client import NativeClawClient
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # src/.. → 项目根
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # test/../.. → 项目根
 # 凭据路径可由 argv[1] 指定，默认沿用 6877172098（已移到 creds/）
 USER_FILE = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE_DIR / "creds" / "user_6877172098.json"
 # prompt：argv[2] 指定自定义 prompt 文件；否则走 PromptStore（占位符已替换，无硬编码密钥）
 USER_PROMPT_FILE = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 # 输出按 uid 区分到 logs/，避免多实例并行互相覆盖
 _USER_STEM = USER_FILE.stem  # user_<uid>
-CONVERSATION_LOG = BASE_DIR / "logs" / f"conversation_log_{_USER_STEM}.jsonl"
-SUMMARY_LOG = BASE_DIR / "logs" / f"conversation_summary_{_USER_STEM}.md"
+CONVERSATION_LOG = BASE_DIR / "data" / "logs" / f"conversation_log_{_USER_STEM}.jsonl"
+SUMMARY_LOG = BASE_DIR / "data" / "logs" / f"conversation_summary_{_USER_STEM}.md"
 
 # 加载注入提示词
 if USER_PROMPT_FILE is not None:
@@ -44,7 +44,7 @@ if USER_PROMPT_FILE is not None:
         INJECT_PROMPT = _f.read().strip()
 else:
     from prompt_store import PromptStore
-    _store = PromptStore(BASE_DIR / "prompts" / "templates.json")
+    _store = PromptStore(BASE_DIR / "data" / "prompts" / "templates.json")
     INJECT_PROMPT = _store.get("deploy.v1.standard").text.strip()
 
 # 部署任务很重（git clone + 下载二进制 + 跑 deploy + 验证），给足超时

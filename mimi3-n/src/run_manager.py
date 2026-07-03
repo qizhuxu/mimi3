@@ -37,7 +37,7 @@ from tunnel_health import TunnelHealth
 from deploy_one import decode_tunnel_id
 
 
-BASE_DIR = _SRC.parent  # src/.. → 项目根目录（creds/ state/ prompts/ data/）
+BASE_DIR = _SRC.parent  # src/.. → 项目根目录（data/creds/ data/state/ data/prompts/ data/logs/）
 
 
 def _config() -> dict:
@@ -58,9 +58,9 @@ def _config() -> dict:
 
 def _build_manager(config: dict, *, build_tunnel: bool = True):
     logger = build_logger("account-manager")
-    pool = AccountPool(BASE_DIR / "creds", BASE_DIR / "state",
+    pool = AccountPool(BASE_DIR / "data" / "creds", BASE_DIR / "data" / "state",
                        daily_cooldown=config["scheduler.daily_cooldown_seconds"])
-    store = PromptStore(BASE_DIR / "prompts" / "templates.json", logger=logger)
+    store = PromptStore(BASE_DIR / "data" / "prompts" / "templates.json", logger=logger)
     sched = Scheduler(config)
 
     # 可选 L3
@@ -87,7 +87,7 @@ def _build_manager(config: dict, *, build_tunnel: bool = True):
 
     mgr = AccountManager(
         pool, sched, hm, store,
-        out_dir=BASE_DIR / "logs",
+        out_dir=BASE_DIR / "data" / "logs",
         config=config, logger=logger,
         tunnel_health=tunnel_health,
         public_hostname=public_hostname,

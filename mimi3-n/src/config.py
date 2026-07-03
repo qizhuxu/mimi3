@@ -34,7 +34,7 @@ _DEFAULTS: dict[str, Any] = {
         "api_key_env": "MIMO_API_KEY",
     },
     "prompt_store": {
-        "templates_path": "prompts/templates.json",
+        "templates_path": "data/prompts/templates.json",
         "substitution_values": {
             "PUBLIC_HOSTNAME": "mimo.7786.pp.ua",
             "LOCAL_PORT": "8359",

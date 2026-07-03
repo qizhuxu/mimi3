@@ -146,7 +146,7 @@ if __name__ == "__main__":
     # 冒烟测
     import sys
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    store = PromptStore(Path(__file__).parent / "prompts" / "templates.json")
+    store = PromptStore(Path(__file__).parent.parent / "data" / "prompts" / "templates.json")
     print("ids:", store.all_ids())
     t = store.get("deploy.v1.standard")
     print(f"standard: text_len={len(t.text)} preferred_after={t.preferred_after}")

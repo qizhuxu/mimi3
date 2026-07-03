@@ -83,7 +83,7 @@ async def main() -> int:
     logger.info(f"=== 单账号部署 uid={uid} prompt={prompt_id} ===")
 
     # PromptStore
-    store = PromptStore(base_dir / "prompts" / "templates.json", logger=logger)
+    store = PromptStore(base_dir / "data" / "prompts" / "templates.json", logger=logger)
 
     # 可选 L3：TunnelHealth（需 CF_API_TOKEN + CF_ACCOUNT_ID + TUNNEL_ID）
     tunnel_health = None
@@ -116,7 +116,7 @@ async def main() -> int:
     deployer = ClawDeployer(
         creds, logger,
         prompt_store=store,
-        out_dir=base_dir / "logs",
+        out_dir=base_dir / "data" / "logs",
         tunnel_health=tunnel_health,
         public_hostname=public_hostname,
         proxy_api_key=proxy_api_key,

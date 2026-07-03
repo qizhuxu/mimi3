@@ -1,9 +1,9 @@
 # 凭据（敏感，绝不提交）
-creds/
+data/creds/
 user_*.json
 
 # 对话录制产物
-logs/
+data/logs/
 conversation_log*.jsonl
 conversation_summary*.md
 
@@ -17,5 +17,5 @@ __pycache__/
 .env
 # 不全局忽略 *.lock——uv.lock 应跟踪（可重现构建）
 
-# 部署 env 配置（含 TUNNEL_TOKEN / PROXY_API_KEY 等敏感值，PromptStore 占位符替换源）
-data/deploy_env.json
+# 账号运行时状态（每个账号一个 state.json，user_*.json 模式已覆盖）
+data/state/
