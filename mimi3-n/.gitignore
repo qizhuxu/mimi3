@@ -1,0 +1,20 @@
+# 凭据（敏感，绝不提交）
+creds/
+user_*.json
+
+# 对话录制产物
+logs/
+conversation_log*.jsonl
+conversation_summary*.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 本地运行时
+.env
+*.lock
+
+# 部署 env 配置（含 TUNNEL_TOKEN / PROXY_API_KEY 等敏感值，PromptStore 占位符替换源）
+data/deploy_env.json
