@@ -19,20 +19,20 @@
 - `src/claw_deployer.py`: ClawDeployer — full deploy flow (status → connect → inject → verify)
 - `src/deploy_errors.py`: error classification (classify_reply, error types)
 - `src/prompt_store.py`: prompt template management with `{{VAR}}` substitution
-- `src/config.py`: two-layer config loader (os.getenv + data/config.json)
+- `src/config.py`: two-layer config loader (os.getenv + config.json)
 - `src/tunnel_health.py`: tunnel endpoint health probe
 - `data/prompts/templates.json`: inject prompt templates (placeholders only, no secrets)
 - `data/prompts/_gen_templates.py`: prompt generator script
 - `test/test_inject.py`: standalone injection test
 - `webui/`: frontend (placeholder)
-- `data/`: runtime state (creds, state, logs, config.json, .env) — all gitignored
+- `data/`: runtime state (creds, state, logs) — gitignored; root `.env` and `config.json` are also gitignored
 
 ## Key Conventions
 
-- **Config layering**: `.env` for secrets (os.getenv), `data/config.json` for operational params
+- **Config layering**: `.env` for secrets (os.getenv), `config.json` for operational params
 - **Auth layering**: user → Claw (PROXY_API_KEY via Caddy), Claw → MiMo (MIMO_API_KEY upstream header)
 - **Cooldown**: 24h rolling cooldown per account after each deploy
-- **Prompt templates**: `{{VAR}}` placeholders in `templates.json`, substituted at runtime from `.env` + `data/config.json`
+- **Prompt templates**: `{{VAR}}` placeholders in `templates.json`, substituted at runtime from `.env` + `config.json`
 - **Error classification**: `classify_reply()` checks success markers BEFORE refused markers (strong markers only, no bare emoji)
 - **Account states**: idle → needs_deploy → deploying → active → cooldown → relogin_needed → disabled
 - **All Claw instances share one tunnel URL** — Cloudflare load-balances across replicas. No per-account routing.
@@ -40,11 +40,11 @@
 ## Running
 
 ```bash
-uv run --env-file data/.env python src/run_manager.py plan    # dry-run
-uv run --env-file data/.env python src/run_manager.py run     # continuous operation
-uv run --env-file data/.env python src/run_manager.py status  # current state
-uv run --env-file data/.env python src/deploy_one.py <uid>    # single deploy
-uv run --env-file data/.env python test/test_inject.py        # test injection
+uv run --env-file .env python src/run_manager.py plan    # dry-run
+uv run --env-file .env python src/run_manager.py run     # continuous operation
+uv run --env-file .env python src/run_manager.py status  # current state
+uv run --env-file .env python src/deploy_one.py data/creds/user_<uid>.json deploy.v1.standard  # single deploy
+uv run --env-file .env python test/test_inject.py <creds_file>        # test injection
 ```
 
 ## Coding Guidelines
@@ -61,21 +61,23 @@ uv run --env-file data/.env python test/test_inject.py        # test injection
 
 ```bash
 uv run python -m compileall -q src test      # syntax check
-uv run --env-file data/.env python test/test_inject.py <creds_file>
+uv run --env-file .env python test/test_inject.py <creds_file>
 ```
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **mimi3** (419 symbols, 835 relationships, 36 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **mimi3** (454 symbols, 884 relationships, 37 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root.
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
 ## Always Do
 
 - **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
 - **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
 
 ## Never Do
 
@@ -92,6 +94,18 @@ This project is indexed by GitNexus as **mimi3** (419 symbols, 835 relationships
 | `gitnexus://repo/mimi3/clusters` | All functional areas |
 | `gitnexus://repo/mimi3/processes` | All execution flows |
 | `gitnexus://repo/mimi3/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
 <!-- gitnexus:end -->
 ```
 

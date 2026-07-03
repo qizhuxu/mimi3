@@ -124,18 +124,18 @@ _SECRET_TEXT_SUBS = (
         r"\1<redacted>\2",
     ),
     (
-        re.compile(r"(?i)((?:MIMO_API_KEY|MIMO_API_ENDPOINT)\s*=\s*)[\"']?[^;\s,\"']+"),
+        re.compile(r"(?i)((?:MIMO_API_KEY|MIMO_API_ENDPOINT|TUNNEL_TOKEN|PROXY_API_KEY|CF_API_TOKEN|CF_ACCOUNT_ID)\s*=\s*)[\"']?[^;\s,\"']+"),
         r"\1<redacted>",
     ),
     (
         re.compile(
-            r"(?i)(\"(?:MIMO_API_KEY|MIMO_API_ENDPOINT|api-key)\"\s*:\s*\")[^\"]+(\")"
+            r"(?i)(\"(?:MIMO_API_KEY|MIMO_API_ENDPOINT|TUNNEL_TOKEN|PROXY_API_KEY|CF_API_TOKEN|CF_ACCOUNT_ID|api-key)\"\s*:\s*\")[^\"]+(\")"
         ),
         r"\1<redacted>\2",
     ),
     (
         re.compile(
-            r"(?i)('(?:MIMO_API_KEY|MIMO_API_ENDPOINT|api-key)'\s*:\s*')[^']+(')"
+            r"(?i)('(?:MIMO_API_KEY|MIMO_API_ENDPOINT|TUNNEL_TOKEN|PROXY_API_KEY|CF_API_TOKEN|CF_ACCOUNT_ID|api-key)'\s*:\s*')[^']+(')"
         ),
         r"\1<redacted>\2",
     ),

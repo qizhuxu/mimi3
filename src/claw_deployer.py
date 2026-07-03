@@ -23,10 +23,11 @@ from typing import Optional
 
 import httpx
 
-from claw_client import BASE_URL, NativeClawClient, _aistudio_headers
+from claw_client import BASE_URL, NativeClawClient, _aistudio_headers, safe_claw_trace_text
 from deploy_errors import (
     AUTH_EXPIRED, CREATE_FAILED, CREATE_RATE_LIMITED, DEPLOY_REFUSED,
     NETWORK_ERROR, SEND_TIMEOUT, SUCCESS, VERIFY_FAILED, WS_CONNECT_FAILED,
+    WS_DISCONNECTED,
     classify_instance_status, classify_reply, classify_ws_error,
     extract_connector_id, is_retryable, is_terminal, needs_relogin,
 )
@@ -107,6 +108,42 @@ class DeployError(Exception):
         super().__init__(f"{error_type}: {detail}")
 
 
+_SECRET_RECORD_KEYS = {
+    "authorization",
+    "cookie",
+    "api_key",
+    "mimo_api_key",
+    "mimo_api_endpoint",
+    "tunnel_token",
+    "proxy_api_key",
+    "cf_api_token",
+    "cf_account_id",
+    "servicetoken",
+    "xiaomichatbot_ph",
+    "session_secret",
+    "webui_session",
+}
+
+
+def _is_secret_record_key(key: object) -> bool:
+    normalized = str(key).strip().lower().replace("-", "_")
+    return normalized in _SECRET_RECORD_KEYS
+
+
+def _redact_recorded_value(value):
+    """递归脱敏 WS 录制内容，保留结构但不落盘密钥。"""
+    if isinstance(value, str):
+        return safe_claw_trace_text(value, limit=max(len(value), 360))
+    if isinstance(value, dict):
+        return {
+            k: "<redacted>" if _is_secret_record_key(k) else _redact_recorded_value(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_recorded_value(v) for v in value]
+    return value
+
+
 # ----------------- RecordingClawClient -----------------
 
 class RecordingClawClient(NativeClawClient):
@@ -124,7 +161,7 @@ class RecordingClawClient(NativeClawClient):
     def _record(self, direction: str, data):
         self._msg_seq += 1
         if self._record_file:
-            line = {"seq": self._msg_seq, "ts": time.time(), "dir": direction, "data": data}
+            line = {"seq": self._msg_seq, "ts": time.time(), "dir": direction, "data": _redact_recorded_value(data)}
             self._record_file.write(json.dumps(line, ensure_ascii=False) + "\n")
             self._record_file.flush()
 
@@ -339,6 +376,12 @@ class ClawDeployer:
             raise DeployError(et, f"send_message 异常: {e}")
         if not reply:
             raise DeployError(SEND_TIMEOUT, "send_message 返回空（无 final 回复）")
+        if "等待最终态回复超时" in reply:
+            raise DeployError(SEND_TIMEOUT, reply)
+        if "Websocket 未连接" in reply or "WebSocket 未连接" in reply:
+            raise DeployError(WS_DISCONNECTED, reply)
+        if "下发 payload 异常" in reply:
+            raise DeployError(NETWORK_ERROR, reply)
         return reply
 
     # ---- phase 4: verify ----
@@ -350,7 +393,9 @@ class ClawDeployer:
             return False, None, et
         cid = extract_connector_id(reply)
         # L3（可选）：connector_id 在 Cloudflare 活跃列表里
-        if self._tunnel_health is not None and cid:
+        if self._tunnel_health is not None:
+            if not cid:
+                return False, None, VERIFY_FAILED
             try:
                 active = await self._tunnel_health.is_replica_active(cid)
             except Exception as e:
@@ -393,8 +438,14 @@ class ClawDeployer:
             current_tpl = tpl
             while True:
                 async def _send():
-                    return await self._send_inject(current_tpl.text)
-                ok, reply, err = await self._retry("send", _send, retryable_override={SEND_TIMEOUT, NETWORK_ERROR, "ws_disconnected"})
+                    try:
+                        return await self._send_inject(current_tpl.text)
+                    except DeployError as e:
+                        if e.error_type == WS_DISCONNECTED:
+                            self._logger.info("[send] WS 已断开，重新握手后再重试发送")
+                            await self._ws_handshake(False)
+                        raise
+                ok, reply, err = await self._retry("send", _send, retryable_override={SEND_TIMEOUT, NETWORK_ERROR, WS_DISCONNECTED})
                 if not ok:
                     raise err
                 result.reply = reply
@@ -432,7 +483,7 @@ class ClawDeployer:
                 pass
             # 最终实例状态
             try:
-                st, remain = await self._probe_status()
+                st, remain, _ = await self._probe_status()
                 result.instance_status = st
                 result.instance_remain_sec = remain
             except Exception:

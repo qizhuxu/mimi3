@@ -39,19 +39,19 @@ pip install -r requirements.txt
 uv sync
 
 # Configure
-cp .env.example data/.env
-cp config.example.json data/config.json
-# Edit data/.env with your TUNNEL_TOKEN, PROXY_API_KEY
-# Edit data/config.json with your operational params
+cp .env.example .env
+cp config.example.json config.json
+# Edit .env with your TUNNEL_TOKEN, PROXY_API_KEY
+# Edit config.json with your operational params
 
 # Dry-run scheduler
-uv run --env-file data/.env python src/run_manager.py plan
+uv run --env-file .env python src/run_manager.py plan
 
 # Run continuous operation
-uv run --env-file data/.env python src/run_manager.py run
+uv run --env-file .env python src/run_manager.py run
 
 # Deploy a single account
-uv run --env-file data/.env python src/deploy_one.py <uid>
+uv run --env-file .env python src/deploy_one.py data/creds/user_<uid>.json deploy.v1.standard
 ```
 
 ## Credential files
@@ -80,7 +80,7 @@ mimi3 exposes OpenAI-compatible chat completions endpoints through a Cloudflare 
 
 > Auth key is **PROXY_API_KEY** (client auth), not the upstream MIMO_API_KEY.
 > MIMO_API_KEY is injected by Caddy automatically — transparent to end users.
-> PROXY_API_KEY value: ask operations (stored in `data/.env`, never committed).
+> PROXY_API_KEY value: ask operations (stored in `.env`, never committed).
 
 ### curl
 
