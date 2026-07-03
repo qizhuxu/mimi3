@@ -20,11 +20,15 @@ import sys
 import time
 from pathlib import Path
 
-from claw_client import NativeClawClient
-
 # ----------------- 配置 -----------------
 
-BASE_DIR = Path(__file__).resolve().parent
+_SRC = Path(__file__).resolve().parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from claw_client import NativeClawClient
+
+BASE_DIR = Path(__file__).resolve().parent.parent  # src/.. → 项目根
 # 凭据路径可由 argv[1] 指定，默认沿用 6877172098（已移到 creds/）
 USER_FILE = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE_DIR / "creds" / "user_6877172098.json"
 # prompt：argv[2] 指定自定义 prompt 文件；否则走 PromptStore（占位符已替换，无硬编码密钥）

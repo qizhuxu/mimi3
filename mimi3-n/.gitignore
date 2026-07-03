@@ -11,10 +11,11 @@ conversation_summary*.md
 __pycache__/
 *.py[cod]
 *.egg-info/
+.venv/
 
 # 本地运行时
 .env
-*.lock
+# 不全局忽略 *.lock——uv.lock 应跟踪（可重现构建）
 
 # 部署 env 配置（含 TUNNEL_TOKEN / PROXY_API_KEY 等敏感值，PromptStore 占位符替换源）
 data/deploy_env.json

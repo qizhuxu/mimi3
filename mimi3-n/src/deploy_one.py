@@ -24,6 +24,10 @@ import os
 import sys
 from pathlib import Path
 
+_SRC = Path(__file__).resolve().parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 from claw_deployer import ClawDeployer, DeployResult, build_logger, load_credentials
 from prompt_store import PromptStore
 from tunnel_health import TunnelHealth
@@ -71,7 +75,7 @@ async def main() -> int:
     prompt_id = sys.argv[2] if len(sys.argv) > 2 else "deploy.v1.standard"
 
     logger = build_logger("deploy-one")
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parent.parent  # src/.. → 项目根
 
     # 加载凭据
     creds = load_credentials(creds_path)

@@ -22,6 +22,11 @@ import os
 import sys
 from pathlib import Path
 
+# 让 Python 找到 src/ 里的同级模块（无论 cwd 在哪）
+_SRC = Path(__file__).resolve().parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 from account_manager import AccountManager
 from account_store import AccountPool
 from claw_deployer import build_logger
@@ -32,7 +37,7 @@ from tunnel_health import TunnelHealth
 from deploy_one import decode_tunnel_id
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = _SRC.parent  # src/.. → 项目根目录（creds/ state/ prompts/ data/）
 
 
 def _config() -> dict:

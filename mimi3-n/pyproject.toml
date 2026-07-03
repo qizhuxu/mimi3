@@ -1,0 +1,13 @@
+[project]
+name = "mimi3-n"
+version = "0.1.0"
+description = "Claw + Cloudflare Tunnel proxy-skill deployer and account manager"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "websockets>=16.0",
+]
+
+[tool.uv]
+# 非 package 项目——src/ 平铺 .py 文件，不构建 pip 包
+package = false
