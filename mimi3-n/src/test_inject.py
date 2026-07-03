@@ -44,8 +44,7 @@ if USER_PROMPT_FILE is not None:
         INJECT_PROMPT = _f.read().strip()
 else:
     from prompt_store import PromptStore
-    _store = PromptStore(BASE_DIR / "prompts" / "templates.json",
-                         env_config_path=BASE_DIR / "data" / "deploy_env.json")
+    _store = PromptStore(BASE_DIR / "prompts" / "templates.json")
     INJECT_PROMPT = _store.get("deploy.v1.standard").text.strip()
 
 # 部署任务很重（git clone + 下载二进制 + 跑 deploy + 验证），给足超时

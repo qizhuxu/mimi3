@@ -70,18 +70,32 @@ class PromptStore:
         self._logger.info("prompt_store 已加载 %d 个模板: %s", len(self._templates), list(self._templates))
 
     def _load_env(self) -> None:
-        """加载 env 配置（data/deploy_env.json）。env var 优先于文件值。"""
+        """加载 env 替换值：data/config.json["prompt_store"]["substitution_values"]（新路）
+        或旧 data/deploy_env.json（迁移兼容）。os.getenv 优先于文件值。"""
         self._env_values = {}
-        if not self.env_config_path or not self.env_config_path.exists():
-            return
-        try:
-            with open(self.env_config_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if isinstance(raw, dict):
-                for k, v in raw.items():
-                    self._env_values[str(k)] = "" if v is None else str(v)
-        except Exception as e:
-            self._logger.warning("读取 env 配置 %s 失败: %s", self.env_config_path, e)
+        # 1. data/config.json
+        cfg = self.path.parent.parent / "data" / "config.json"
+        if cfg.exists():
+            try:
+                with open(cfg, encoding="utf-8") as f:
+                    raw = json.load(f)
+                subs = raw.get("prompt_store", {}).get("substitution_values", {})
+                if isinstance(subs, dict):
+                    for k, v in subs.items():
+                        if not k.startswith("_"):
+                            self._env_values[str(k)] = "" if v is None else str(v)
+            except Exception as e:
+                self._logger.warning("读取 %s 替换值失败: %s", cfg, e)
+        # 2. 旧路：deploy_env.json（迁移兼容）
+        if not self._env_values and self.env_config_path and self.env_config_path.exists():
+            try:
+                with open(self.env_config_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                if isinstance(raw, dict):
+                    for k, v in raw.items():
+                        self._env_values[str(k)] = "" if v is None else str(v)
+            except Exception as e:
+                self._logger.warning("读取 %s 失败: %s", self.env_config_path, e)
 
     def _substitute(self, text: str) -> str:
         """把 {{VAR}} 替换为 env 值（os.getenv 优先于配置文件）。
@@ -92,8 +106,8 @@ class PromptStore:
             val = os.getenv(var, "").strip() or self._env_values.get(var, "")
             if not val:
                 self._logger.warning(
-                    "prompt 占位符 {{%s}} 无值（env 和 %s 都没配），将带字面占位符发送",
-                    var, self.env_config_path or "<无 env 配置>")
+                    "prompt 占位符 {{%s}} 无值（.env 和 data/config.json 都没配），将带字面占位符发送",
+                    var)
                 return m.group(0)
             return val
         return _PLACEHOLDER_RE.sub(_repl, text)
@@ -132,8 +146,7 @@ if __name__ == "__main__":
     # 冒烟测
     import sys
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    store = PromptStore(Path(__file__).parent / "prompts" / "templates.json",
-                        env_config_path=Path(__file__).parent / "data" / "deploy_env.json")
+    store = PromptStore(Path(__file__).parent / "prompts" / "templates.json")
     print("ids:", store.all_ids())
     t = store.get("deploy.v1.standard")
     print(f"standard: text_len={len(t.text)} preferred_after={t.preferred_after}")

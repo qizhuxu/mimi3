@@ -1,0 +1,50 @@
+{
+  "这是一份示例配置": "复制为 data/config.json（gitignored），按需改。env 值优先于此文件。",
+
+  "pool": {
+    "min_accounts": 8,
+    "max_accounts": 50,
+    "comment": "池子不够 min_accounts 时 reconcile 会告警"
+  },
+
+  "scheduler": {
+    "tick_seconds": 30,
+    "handoff_lead_seconds": 1800,
+    "daily_cooldown_seconds": 86400,
+    "max_concurrent_deploys": 1,
+    "comment_handoff": "实例剩余 < handoff_lead_seconds 时触发手递手接班",
+    "comment_cooldown": "每个账号 deploy 后 N 秒内不重新创建实例（claw API 1/天限制）"
+  },
+
+  "health": {
+    "interval_seconds": 300,
+    "comment": "per-account 健康检查节流，对同一账号两次检查间隔不少于此值"
+  },
+
+  "deploy": {
+    "send_timeout": 900,
+    "prompt_id": "deploy.v1.standard",
+    "comment_timeout": "放过 prompt 后等 claw 回复的秒数（claw 跑 deploy-user.sh 较慢）"
+  },
+
+  "tunnel": {
+    "public_hostname": "mimo.7786.pp.ua",
+    "local_port": 8359,
+    "upstream": "api-sgp-oc.xiaomimimo.com:443",
+    "api_key_env": "MIMO_API_KEY",
+    "comment_hostname": "Cloudflare Tunnel 公网域名，对应 Caddy ingress",
+    "comment_upstream": "MIMO API 地址，Caddy reverse_proxy 指向此处",
+    "comment_key_env": "上游鉴权用哪个 env var 名（值在 claw 环境里，Caddy 用 {env.…} 引用）"
+  },
+
+  "prompt_store": {
+    "templates_path": "prompts/templates.json",
+    "substitution_values": {
+      "PUBLIC_HOSTNAME": "mimo.7786.pp.ua",
+      "LOCAL_PORT": "8359",
+      "UPSTREAM": "api-sgp-oc.xiaomimimo.com:443",
+      "API_KEY_ENV": "MIMO_API_KEY",
+      "comment": "TUNNEL_TOKEN 和 PROXY_API_KEY 走 .env（敏感），不在此处"
+    }
+  }
+}

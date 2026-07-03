@@ -83,8 +83,7 @@ async def main() -> int:
     logger.info(f"=== 单账号部署 uid={uid} prompt={prompt_id} ===")
 
     # PromptStore
-    store = PromptStore(base_dir / "prompts" / "templates.json",
-                        env_config_path=base_dir / "data" / "deploy_env.json", logger=logger)
+    store = PromptStore(base_dir / "prompts" / "templates.json", logger=logger)
 
     # 可选 L3：TunnelHealth（需 CF_API_TOKEN + CF_ACCOUNT_ID + TUNNEL_ID）
     tunnel_health = None

@@ -41,15 +41,18 @@ BASE_DIR = _SRC.parent  # src/.. → 项目根目录（creds/ state/ prompts/ da
 
 
 def _config() -> dict:
+    # 用新 config.py 加载（.env + data/config.json 两源合并）
+    from config import settings
+    c = settings()
     return {
-        "pool.min_accounts": int(os.getenv("MIMI3N_MIN_ACCOUNTS", "8")),
-        "scheduler.tick_seconds": int(os.getenv("MIMI3N_TICK_SECONDS", "30")),
-        "scheduler.handoff_lead_seconds": 1800,
-        "scheduler.daily_cooldown_seconds": 86400,
-        "scheduler.max_concurrent_deploys": 1,
-        "health.interval_seconds": 300,
-        "deploy.send_timeout": 900,
-        "deploy.prompt_id": "deploy.v1.standard",
+        "pool.min_accounts": c["pool"]["min_accounts"],
+        "scheduler.tick_seconds": c["scheduler"]["tick_seconds"],
+        "scheduler.handoff_lead_seconds": c["scheduler"]["handoff_lead_seconds"],
+        "scheduler.daily_cooldown_seconds": c["scheduler"]["daily_cooldown_seconds"],
+        "scheduler.max_concurrent_deploys": c["scheduler"]["max_concurrent_deploys"],
+        "health.interval_seconds": c["health"]["interval_seconds"],
+        "deploy.send_timeout": c["deploy"]["send_timeout"],
+        "deploy.prompt_id": c["deploy"]["prompt_id"],
     }
 
 
@@ -57,8 +60,7 @@ def _build_manager(config: dict, *, build_tunnel: bool = True):
     logger = build_logger("account-manager")
     pool = AccountPool(BASE_DIR / "creds", BASE_DIR / "state",
                        daily_cooldown=config["scheduler.daily_cooldown_seconds"])
-    store = PromptStore(BASE_DIR / "prompts" / "templates.json",
-                        env_config_path=BASE_DIR / "data" / "deploy_env.json", logger=logger)
+    store = PromptStore(BASE_DIR / "prompts" / "templates.json", logger=logger)
     sched = Scheduler(config)
 
     # 可选 L3
