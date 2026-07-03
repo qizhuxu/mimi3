@@ -1,115 +1,104 @@
 # Agent Guidance
 
-This guidance applies to the entire repository.
-
 ## Project Snapshot
 
-- `mimi3` / `mimo2api` is a Python 3.12 FastAPI gateway that exposes OpenAI-compatible relay endpoints, a WebUI control panel, WebSocket bridge management, lifecycle monitoring, Cloudflare Tunnel supervision, metrics persistence, and AI Studio web-chat proxy routes.
-- The runtime entrypoint is `main.py`. It loads `.env`, resolves runtime configuration, configures logging, imports the FastAPI app from `mimo2api.web_service`, and starts Uvicorn.
-- The project is intentionally small and direct. Prefer focused changes inside existing modules over broad rewrites or new framework layers.
+- `mimi3` is a Claw instance account manager + proxy-skill deployer. It manages a pool of Xiaomi AI Studio accounts and deploys `cloudflared + Caddy` proxy skills into their Claw instances, making them reachable via Cloudflare Tunnel public URLs.
+- There is no relay gateway layer — users call the tunnel URL directly. Each Claw instance is an independent proxy endpoint.
+- The runtime entrypoint is `src/run_manager.py` (`plan` for dry-run, `run` for continuous operation).
+- Project managed via `uv` (see `pyproject.toml`, `uv.lock`).
 
 ## Important Paths
 
-- `main.py`: process entrypoint, event loop policy, logging setup, Uvicorn launch.
-- `mimo2api/web_service.py`: FastAPI app, API routes, WebSocket gateway behavior, session/API integration.
-- `mimo2api/webui.html`: single-file WebUI. Keep API contracts synchronized with backend changes.
-- `mimo2api/ui_router.py`: WebUI routing helpers.
-- `mimo2api/manager.py`: account orchestration, bridge injection, node waiting, lifecycle-related account behavior.
-- `mimo2api/bridge.py`: bridge-side WebSocket client behavior, node identity hello payloads, heartbeat behavior.
-- `mimo2api/gateway_state.py`: shared in-memory WebSocket/node state.
-- `mimo2api/gateway_health.py`: remote gateway stats parsing and node presence helpers.
-- `mimo2api/lifecycle_monitor.py`: lifecycle classification and bridge presence resolution.
-- `mimo2api/runtime_config.py`: merged environment/runtime configuration, including `data/runtime_config.json`.
-- `mimo2api/tunnel_supervisor.py`: Cloudflare Tunnel process supervision.
-- `mimo2api/metrics_store.py`: metrics snapshot and SQLite persistence.
-- `mimo2api/web_chat_proxy.py`: AI Studio web-chat HTTP/WebSocket proxy routes.
-- `mimo2api/auth.py`: WebUI/API authentication helpers.
-- `mimo2api/logging_utils.py`: compact structured log helpers and library log-level control.
-- `tests/`: unittest-based focused regression tests.
-- `users/`, `logs/`, `data/`: runtime state. Treat contents as local artifacts unless the user explicitly asks otherwise.
+- `src/run_manager.py`: CLI entrypoint (`plan` / `run` / `deploy` / `status`)
+- `src/deploy_one.py`: single-account deploy script
+- `src/account_manager.py`: multi-account orchestration, reconcile, tick loop
+- `src/account_store.py`: account state persistence (JSON files per account)
+- `src/scheduler.py`: deployment scheduling (handoff, stagger, cooldown)
+- `src/health_monitor.py`: periodic connectivity checks per active account
+- `src/claw_client.py`: NativeClawClient — WS connect/send_message/get_instance_status
+- `src/claw_deployer.py`: ClawDeployer — full deploy flow (status → connect → inject → verify)
+- `src/deploy_errors.py`: error classification (classify_reply, error types)
+- `src/prompt_store.py`: prompt template management with `{{VAR}}` substitution
+- `src/config.py`: two-layer config loader (os.getenv + data/config.json)
+- `src/tunnel_health.py`: tunnel endpoint health probe
+- `data/prompts/templates.json`: inject prompt templates (placeholders only, no secrets)
+- `data/prompts/_gen_templates.py`: prompt generator script
+- `test/test_inject.py`: standalone injection test
+- `webui/`: frontend (placeholder)
+- `data/`: runtime state (creds, state, logs, config.json, .env) — all gitignored
 
-## Local Commands
+## Key Conventions
 
-Install runtime dependencies:
+- **Config layering**: `.env` for secrets (os.getenv), `data/config.json` for operational params
+- **Auth layering**: user → Claw (PROXY_API_KEY via Caddy), Claw → MiMo (MIMO_API_KEY upstream header)
+- **Cooldown**: 24h rolling cooldown per account after each deploy
+- **Prompt templates**: `{{VAR}}` placeholders in `templates.json`, substituted at runtime from `.env` + `data/config.json`
+- **Error classification**: `classify_reply()` checks success markers BEFORE refused markers (strong markers only, no bare emoji)
+- **Account states**: idle → needs_deploy → deploying → active → cooldown → relogin_needed → disabled
+- **All Claw instances share one tunnel URL** — Cloudflare load-balances across replicas. No per-account routing.
 
-```bash
-pip install -r requirements.txt
-```
-
-Run the gateway:
-
-```bash
-python main.py
-```
-
-Run with Docker:
+## Running
 
 ```bash
-cp env.example .env
-docker compose up -d --build
+uv run --env-file data/.env python src/run_manager.py plan    # dry-run
+uv run --env-file data/.env python src/run_manager.py run     # continuous operation
+uv run --env-file data/.env python src/run_manager.py status  # current state
+uv run --env-file data/.env python src/deploy_one.py <uid>    # single deploy
+uv run --env-file data/.env python test/test_inject.py        # test injection
 ```
-
-Run tests:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-Syntax-check the main code paths:
-
-```bash
-python -m compileall -q main.py mimo2api tests
-```
-
-If the local `.venv` is stale or points to a missing interpreter, recreate it instead of relying on it.
-
-## Configuration Rules
-
-- Copy `env.example` to `.env` for local runs. Never commit real `.env` values.
-- `WS_TUNNEL_URL` is the bridge WebSocket URL used by Claw nodes. When explicitly set by environment, treat it as a locked manual value.
-- Runtime WebUI configuration should go through `mimo2api/runtime_config.py` and `data/runtime_config.json`; do not mutate `.env` from application code.
-- Docker persists runtime files through `./users`, `./logs`, and `./data`.
-- Keep `SERVER_HOST`, `SERVER_PORT`, metrics paths, process lock path, WebUI auth settings, lifecycle settings, and tunnel settings compatible between `env.example`, Docker, and runtime config code.
 
 ## Coding Guidelines
 
-- Preserve the existing FastAPI/Uvicorn architecture. Use `httpx`, `websockets`, standard library helpers, and existing local utilities before adding dependencies.
-- Keep endpoint compatibility for `/v1/chat/completions`, `/v1/responses`, `/anthropic/v1/messages`, `/api/stats`, lifecycle APIs, WebUI APIs, and `/api/web-chat/<uid>/...` proxy paths.
-- Maintain WebSocket node identity behavior. Bridge clients should send a `hello` payload and periodic `heartbeat` messages containing the node UID; gateway state should map node UID to the active WebSocket.
-- Do not reintroduce repeated bridge injection when the gateway can only see unknown remote nodes. Preserve the ambiguity handling in manager/lifecycle code.
-- Avoid blocking the event loop in request handlers or WebSocket paths. Use async clients and timeouts for network work.
-- Keep logging compact and safe. Do not log full AI replies, reset prompts, credentials, cookies, session tokens, or large upstream payloads at INFO. Use `log_event` and `compact_text` for structured summaries.
-- When editing `webui.html`, keep controls practical and dense. Avoid adding explanatory marketing text; this is an operational control panel.
-- Preserve UTF-8 file handling. Some Chinese text may display incorrectly in non-UTF-8 terminals; do not "fix" existing text encoding unless the task is explicitly about encoding.
+- Python 3.12, stdlib-heavy (asyncio, dataclasses, json, re, logging)
+- Prefer `uv` for dependency management; use pip as fallback
+- Keep `config.py` as the single config resolution point
+- Async I/O for all network paths; no blocking calls in critical paths
+- Preserve `{{VAR}}` substitution pattern for prompt templates
+- Log compact summaries, not full credentials or prompt text
+- Don't commit `data/` runtime artifacts, `.env`, `skills-lock.json`, `.claude/`, `.trellis/`
 
-## Testing Expectations
+## Testing
 
-- Add or update focused `unittest` tests under `tests/` for behavior changes.
-- Prefer direct unit tests for parsers, lifecycle decisions, auth helpers, runtime config resolution, and manager decision branches.
-- For WebSocket changes, test state transitions in `gateway_state`, `web_service` binding helpers, and manager wait/injection behavior.
-- For logging changes, test that sensitive or long text is compacted and not emitted directly.
-- Run `python -m unittest discover -s tests -p "test_*.py"` before claiming behavior is fixed. If dependencies or the interpreter are unavailable, report that clearly and at least run `compileall`.
-
-## Runtime Artifacts And Secrets
-
-- Do not commit `.env`, account credentials under `users/`, generated logs, SQLite metrics databases, snapshots, process locks, or `data/runtime_config.json`.
-- Treat `users/user_<uid>.json` files as sensitive local credentials.
-- Treat cookies, bearer keys, WebUI passwords, WebUI session secrets, Cloudflare tokens, and upstream AI Studio values as secrets.
-- Do not delete runtime data unless the user specifically asks for cleanup and confirms the target paths.
-
-## Git And Change Hygiene
-
-- Check `git status --short --branch` before editing.
-- The worktree may already contain user changes. Do not revert, overwrite, or reformat unrelated edits.
-- Keep diffs scoped. Avoid broad formatting churn, especially in `webui.html` and large orchestration modules.
-- If changing public behavior, update `README.md` or `env.example` when needed.
-- If changing Docker/runtime paths, keep `Dockerfile`, `docker-compose.yml`, `env.example`, and docs aligned.
-- For goal-driven work, update `F:\AI\my-obsidian\mimi3\mimi3自建.md` after verification with task status, acceptance notes, test commands, and remaining risks.
+```bash
+uv run python -m compileall -q src test      # syntax check
+uv run --env-file data/.env python test/test_inject.py <creds_file>
+```
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **mimi3** (1038 symbols, 4129 relationships, 86 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **mimi3** (419 symbols, 835 relationships, 36 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/mimi3/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/mimi3/clusters` | All functional areas |
+| `gitnexus://repo/mimi3/processes` | All execution flows |
+| `gitnexus://repo/mimi3/process/{name}` | Step-by-step execution trace |
+<!-- gitnexus:end -->
+```
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **mimi3** (419 symbols, 835 relationships, 36 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

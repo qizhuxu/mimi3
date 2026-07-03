@@ -1,44 +1,28 @@
+# 凭据（敏感，绝不提交）
+data/creds/
+user_*.json
+
+# 对话录制产物
+data/logs/
+conversation_log*.jsonl
+conversation_summary*.md
+
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.log
-.Python
-.env
-.env.*
-!.env.example
+*.egg-info/
 .venv/
-venv/
 
-# 运行时与用户数据（勿提交）
-app_state.json
-claw_users.json
-oc_history.json
-users/*.json
-logs/
-data/
+# 本地运行时
+.env
+data/config.json
+# 不全局忽略 *.lock——uv.lock 应跟踪（可重现构建）
 
-# 抓包归档可能含 Cookie/Token，默认不纳入版本库
-archive/http_captures/
-*.sh
-!docker-entrypoint.sh
-.ai_memory/
-.vscodestatus_page/
-status_page/
+# 账号运行时状态（每个账号一个 state.json，user_*.json 模式已覆盖）
+data/state/
 
-gateway_metrics.db
-gateway_snapshot.json
-mimo2api.lock
-users/
-CLAUDE.md
-.agents/
+# 开发环境 / IDE / 工作流（不提交）
 .claude/
-.cursor/
 .trellis/
+CLAUDE.md
 skills-lock.json
-.superpowers/
-docs/
-
-# 临时文件和备份
-*.bak
-_fix_*.py
-tests/test_webui_logs.py
