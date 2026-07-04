@@ -1,0 +1,150 @@
+/* ── mimi3 Operator Dashboard ── custom styles ── */
+
+/* Fonts */
+.font-heading { font-family: 'Fira Code', monospace; }
+.font-mono { font-family: 'Fira Code', monospace !important; }
+
+/* Overview stat cards */
+.stat-card {
+  @apply bg-[#0F172A] rounded-lg border border-[#334155] p-4
+         flex flex-col items-center justify-center
+         transition-colors duration-150;
+}
+.stat-card:hover {
+  @apply border-[#475569];
+}
+.stat-value {
+  @apply text-3xl font-bold font-heading;
+}
+.stat-label {
+  @apply text-xs text-[#64748B] mt-1 uppercase tracking-wider;
+}
+
+/* Status badges */
+.badge {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+}
+.badge-active {
+  @apply bg-[#22C55E]/15 text-[#22C55E] border border-[#22C55E]/30;
+}
+.badge-idle {
+  @apply bg-[#3B82F6]/15 text-[#3B82F6] border border-[#3B82F6]/30;
+}
+.badge-needs_deploy {
+  @apply bg-[#A855F7]/15 text-[#A855F7] border border-[#A855F7]/30;
+}
+.badge-deploying {
+  @apply bg-[#EAB308]/15 text-[#EAB308] border border-[#EAB308]/30;
+}
+.badge-cooldown {
+  @apply bg-[#6B7280]/15 text-[#6B7280] border border-[#6B7280]/30;
+}
+.badge-relogin_needed {
+  @apply bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30;
+}
+.badge-disabled {
+  @apply bg-[#374151]/15 text-[#9CA3AF] border border-[#374151]/30;
+}
+
+/* Table styling */
+#account-table tbody tr {
+  @apply border-b border-[#1E293B] transition-colors duration-100;
+}
+#account-table tbody tr:hover {
+  @apply bg-[#1E293B]/50;
+}
+#account-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+/* Action buttons */
+.action-btn {
+  @apply inline-flex items-center justify-center px-2.5 py-1.5 rounded text-xs font-medium
+         transition-all duration-150 cursor-pointer border;
+}
+.action-btn:disabled {
+  @apply opacity-40 cursor-not-allowed;
+}
+.action-btn-primary {
+  @apply bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/30 hover:bg-[#22C55E]/20;
+}
+.action-btn-danger {
+  @apply bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/30 hover:bg-[#EF4444]/20;
+}
+.action-btn-ghost {
+  @apply bg-transparent text-[#64748B] border-[#334155] hover:bg-[#1E293B] hover:text-[#94A3B8];
+}
+
+/* Toast notifications */
+.toast {
+  @apply pointer-events-auto px-4 py-3 rounded-lg shadow-lg text-sm
+         border backdrop-blur-sm animate-slide-in;
+  max-width: 380px;
+}
+.toast-success {
+  @apply bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/30;
+}
+.toast-error {
+  @apply bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/30;
+}
+.toast-info {
+  @apply bg-[#3B82F6]/10 text-[#3B82F6] border-[#3B82F6]/30;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+.toast.removing {
+  animation: slide-out 200ms ease-in forwards;
+}
+
+/* Health dot */
+.health-dot {
+  @apply inline-block w-2.5 h-2.5 rounded-full;
+}
+.health-dot-ok { @apply bg-[#22C55E]; box-shadow: 0 0 4px rgba(34,197,94,0.5); }
+.health-dot-degraded { @apply bg-[#EAB308]; box-shadow: 0 0 4px rgba(234,179,8,0.4); }
+.health-dot-fail { @apply bg-[#EF4444]; box-shadow: 0 0 4px rgba(239,68,68,0.5); }
+.health-dot-unknown { @apply bg-[#6B7280]; }
+
+/* Spinner */
+.spinner {
+  @apply inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0F172A; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Link-style text button */
+.text-btn {
+  @apply text-[#64748B] hover:text-[#94A3B8] transition-colors duration-150 cursor-pointer;
+}
+
+/* Confirm dialog overlay */
+#confirm-overlay {
+  @apply fixed inset-0 z-40 bg-black/50 flex items-center justify-center;
+}
+#confirm-box {
+  @apply bg-[#0F172A] border border-[#334155] rounded-lg p-6 shadow-2xl max-w-sm w-full mx-4;
+}
+#confirm-box h3 {
+  @apply text-base font-semibold text-[#F8FAFC] mb-2;
+}
+#confirm-box p {
+  @apply text-sm text-[#CBD5E1] mb-5;
+}
+#confirm-box .actions {
+  @apply flex justify-end gap-3;
+}

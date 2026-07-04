@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mimi3 Operator Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-[#020617] text-[#F8FAFC] font-sans antialiased min-h-screen">
+
+  <!-- ═══ Top Bar ═══ -->
+  <header class="sticky top-0 z-50 bg-[#0F172A]/95 backdrop-blur border-b border-[#334155] px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-[#22C55E] font-bold text-lg tracking-wider font-heading">mimi3</span>
+      <span class="text-[#64748B] text-sm font-light hidden sm:inline">Operator Dashboard</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="refresh-indicator" class="text-xs text-[#64748B]"></span>
+      <button id="btn-reload-config" class="px-3 py-1.5 text-xs rounded bg-[#1E293B] hover:bg-[#334155] border border-[#334155] transition-colors duration-150" title="重载配置 config.json + .env">
+        重载配置
+      </button>
+      <button id="btn-refresh" class="px-3 py-1.5 text-xs rounded bg-[#1E293B] hover:bg-[#334155] border border-[#334155] transition-colors duration-150">
+        刷新
+      </button>
+      <button id="btn-auto-refresh" class="px-3 py-1.5 text-xs rounded border transition-colors duration-150" data-active="true">
+        自动刷新 5s
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-[1440px] mx-auto px-6 py-5 space-y-5">
+
+    <!-- ═══ Overview Cards ═══ -->
+    <section id="overview-cards" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="stat-card"><div class="stat-value" data-stat="active">—</div><div class="stat-label">活跃</div></div>
+      <div class="stat-card"><div class="stat-value" data-stat="cooldown">—</div><div class="stat-label">冷却中</div></div>
+      <div class="stat-card"><div class="stat-value" data-stat="attention">—</div><div class="stat-label">需关注</div></div>
+      <div class="stat-card"><div class="stat-value" data-stat="reserve">—</div><div class="stat-label">储备池</div></div>
+    </section>
+
+    <!-- ═══ Scheduler Panel ═══ -->
+    <section id="scheduler-panel" class="bg-[#0F172A] rounded-lg border border-[#334155] p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider font-heading">调度计划</h2>
+      </div>
+      <div id="scheduler-content" class="text-sm text-[#CBD5E1] space-y-1">
+        <!-- filled by JS -->
+      </div>
+    </section>
+
+    <!-- ═══ Account Table ═══ -->
+    <section id="account-table-section" class="bg-[#0F172A] rounded-lg border border-[#334155] overflow-hidden">
+      <div class="px-4 py-3 border-b border-[#334155] flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider font-heading">账号池</h2>
+        <span id="account-count" class="text-xs text-[#64748B]"></span>
+      </div>
+      <div class="overflow-x-auto">
+        <table id="account-table" class="w-full text-sm">
+          <thead>
+            <tr class="text-[#64748B] text-xs uppercase tracking-wider border-b border-[#334155]">
+              <th class="text-left px-4 py-3 font-medium">UID</th>
+              <th class="text-left px-4 py-3 font-medium">状态</th>
+              <th class="text-right px-4 py-3 font-medium">剩余</th>
+              <th class="text-left px-4 py-3 font-medium font-mono hidden md:table-cell">Connector</th>
+              <th class="text-center px-4 py-3 font-medium hidden lg:table-cell">失败</th>
+              <th class="text-center px-4 py-3 font-medium">健康</th>
+              <th class="text-right px-4 py-3 font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <!-- filled by JS -->
+          </tbody>
+        </table>
+      </div>
+      <div id="table-empty" class="hidden text-center py-12 text-[#64748B]">
+        <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+        <p>暂无账号数据</p>
+        <p class="text-xs mt-1">检查 data/creds/ 目录是否有凭据文件</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══ Toast Container ═══ -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ═══ Scripts ═══ -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

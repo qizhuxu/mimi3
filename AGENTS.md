@@ -24,7 +24,10 @@
 - `data/prompts/templates.json`: inject prompt templates (placeholders only, no secrets)
 - `data/prompts/_gen_templates.py`: prompt generator script
 - `test/test_inject.py`: standalone injection test
-- `webui/`: frontend (placeholder)
+- `webui/server.py`: FastAPI backend serving REST API + static frontend
+- `webui/static/index.html`: operator dashboard HTML (Tailwind + Fira fonts)
+- `webui/static/app.js`: dashboard JS (auto-poll, actions, toasts, confirm dialogs)
+- `webui/static/style.css`: dashboard custom styles (dark theme, badges, health dots)
 - `data/`: runtime state (creds, state, logs) — gitignored; root `.env` and `config.json` are also gitignored
 
 ## Key Conventions
@@ -45,6 +48,8 @@ uv run --env-file .env python src/run_manager.py run     # continuous operation
 uv run --env-file .env python src/run_manager.py status  # current state
 uv run --env-file .env python src/deploy_one.py data/creds/user_<uid>.json deploy.v1.standard  # single deploy
 uv run --env-file .env python test/test_inject.py <creds_file>        # test injection
+uv run --env-file .env uvicorn webui.server:app --host 127.0.0.1 --port 8358  # WebUI dashboard
+uv run python -m compileall -q src webui test                         # syntax check
 ```
 
 ## Coding Guidelines
