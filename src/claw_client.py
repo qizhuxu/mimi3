@@ -249,19 +249,40 @@ class NativeClawClient:
             except Exception as e:
                 self.logger.warning(f"签署 agreement 异常: {e}")
 
-            # 2. 发起创建
-            r = await client.post(
-                url_create, cookies=self.cookies, headers=_aistudio_headers(), timeout=20
-            )
-            create_data, create_detail = _response_details(r)
+            # 2. 发起创建。HTTP 429 是高峰期临时限流，短时间内重试 3 次。
+            for create_attempt in range(3):
+                r = await client.post(
+                    url_create, cookies=self.cookies, headers=_aistudio_headers(), timeout=20
+                )
+                create_data, create_detail = _response_details(r)
+                api_code = create_data.get("code") if isinstance(create_data, dict) else None
+                if r.status_code != 429 or api_code == 7001:
+                    break
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "claw.create.peak_rate_limited",
+                    uid=self.cookies.get("userId"),
+                    attempt=create_attempt + 1,
+                    detail=create_detail,
+                    text_limit=240,
+                )
+                if create_attempt < 2:
+                    await asyncio.sleep(3)
             if r.status_code == 401:
                 self.last_create_error = {"reason": "auth_expired", "http_status": 401,
                                           "api_code": create_data.get("code") if isinstance(create_data, dict) else None,
                                           "detail": create_detail}
                 self.logger.error(f"账户已过期失效: {create_detail}")
                 return False
+            if isinstance(create_data, dict) and create_data.get("code") == 7001:
+                self.last_create_error = {"reason": "api_code_error", "http_status": r.status_code,
+                                          "api_code": create_data.get("code"),
+                                          "detail": create_detail}
+                self.logger.error(f"创建实例接口返回 7001: {create_detail}")
+                return False
             if r.status_code == 429:
-                self.last_create_error = {"reason": "rate_limited", "http_status": 429,
+                self.last_create_error = {"reason": "peak_rate_limited", "http_status": 429,
                                           "api_code": create_data.get("code") if isinstance(create_data, dict) else None,
                                           "detail": create_detail}
                 self.logger.error(f"当前 Claw 实例负载过高: {create_detail}")

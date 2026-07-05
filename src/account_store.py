@@ -12,7 +12,7 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # 部署状态枚举
 S_IDLE = "idle"                    # 无实例，等调度
@@ -24,6 +24,14 @@ S_RELOGIN_NEEDED = "relogin_needed"  # cookie 失效，待补号
 S_DISABLED = "disabled"            # 已清理移出活池
 
 ACTIVE_LIFETIME = 4 * 3600          # claw 实例寿命 4h
+
+DAILY_COOLDOWN_RESULTS = {
+    "success",
+    "create_failed",
+    "deploy_refused",
+    "verify_failed",
+    "create_rate_limited",
+}
 
 
 @dataclass
@@ -55,7 +63,8 @@ class AccountState:
             return False
         if self.cooldown_until and now < self.cooldown_until:
             return False
-        if self.deployed_at and now < self.deployed_at + daily_cooldown:
+        anchor = self.daily_cooldown_anchor()
+        if anchor and now < anchor + daily_cooldown:
             return False  # 24h 滚动冷却未过
         return True
 
@@ -65,6 +74,25 @@ class AccountState:
         if self.expires_at and now > self.expires_at:
             return False  # 寿命已到（状态还没更新但实际过期）
         return True
+
+    def daily_cooldown_anchor(self) -> Optional[float]:
+        if self.last_result == "create_rate_limited":
+            anchors = [v for v in (self.deployed_at, self.last_deploy_attempt_at) if v]
+            return max(anchors) if anchors else None
+        return self.deployed_at
+
+    def daily_cooldown_remaining(self, now: float, daily_cooldown: float = 86400) -> int:
+        if self.last_result not in DAILY_COOLDOWN_RESULTS:
+            return 0
+        anchor = self.daily_cooldown_anchor()
+        if not anchor:
+            return 0
+        return max(0, int(anchor + daily_cooldown - now))
+
+    def short_backoff_remaining(self, now: float) -> int:
+        if not self.cooldown_until:
+            return 0
+        return max(0, int(self.cooldown_until - now))
 
 
 class AccountPool:
@@ -167,6 +195,52 @@ class AccountPool:
         self._creds[uid] = creds
         return True
 
+    def add_credentials(self, creds: dict[str, Any]) -> Optional[str]:
+        """Import one credential object into creds/ and reset it to idle."""
+        clean = {}
+        for k, v in creds.items():
+            s = str(v) if v is not None else ""
+            if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+                s = s[1:-1]
+            clean[k] = s
+        uid = str(clean.get("userId", "")).strip()
+        if not uid or not clean.get("serviceToken") or not clean.get("xiaomichatbot_ph"):
+            return None
+        dest = self.creds_dir / f"user_{uid}.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, dest)
+        self._creds[uid] = clean
+        st = self._states.get(uid) or AccountState(uid=uid)
+        st.deploy_state = S_IDLE
+        st.deployed_at = None
+        st.expires_at = None
+        st.connector_id = None
+        st.last_result = None
+        st.last_error_detail = None
+        st.consecutive_failures = 0
+        st.last_deploy_attempt_at = None
+        st.cooldown_until = None
+        st.disabled_reason = None
+        self.save_state(st)
+        return uid
+
+    def delete_account(self, uid: str) -> bool:
+        if uid not in self._creds and uid not in self._states:
+            return False
+        for p in (
+            self.creds_dir / f"user_{uid}.json",
+            self.state_dir / f"user_{uid}.state.json",
+        ):
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+        self._creds.pop(uid, None)
+        self._states.pop(uid, None)
+        return True
+
     def add_creds_file(self, path: Path) -> Optional[str]:
         """导入新凭据文件到 creds/。返回 uid 或 None。"""
         path = Path(path)
@@ -191,15 +265,49 @@ class AccountPool:
         out = []
         for uid in self.all_uids():
             st = self._states[uid]
+            is_live = st.is_active(now)
+            daily_remaining = 0 if is_live else st.daily_cooldown_remaining(now, self.daily_cooldown)
+            backoff_remaining = st.short_backoff_remaining(now)
+            cooldown_remaining = max(daily_remaining, backoff_remaining)
+            token_invalid = (
+                st.deploy_state == S_RELOGIN_NEEDED
+                or (st.deploy_state == S_DISABLED and st.disabled_reason == "auth_expired")
+            )
+            if is_live:
+                workbench_state = "running"
+                workbench_state_label = "运行中"
+                state_detail = "实例和代理正在运行"
+            elif token_invalid:
+                workbench_state = "token_invalid"
+                workbench_state_label = "token 失效"
+                state_detail = "账号凭据已失效，可删除后重新导入"
+            elif cooldown_remaining > 0:
+                workbench_state = "cooldown"
+                workbench_state_label = "冷却中"
+                state_detail = "7001限流" if st.last_result == "create_rate_limited" else "等待部署冷却或短退避结束"
+            else:
+                workbench_state = "idle"
+                workbench_state_label = "空闲中"
+                state_detail = "可进入调度候选池" if st.is_eligible_for_deploy(now, self.daily_cooldown) else "暂不可调度"
+            connector_live = bool(is_live and st.connector_id)
+            last_error_detail = "7001限流" if st.last_result == "create_rate_limited" else st.last_error_detail
             out.append({
                 "uid": uid,
                 "name": self._creds[uid].get("name", uid),
                 "deploy_state": st.deploy_state,
+                "workbench_state": workbench_state,
+                "workbench_state_label": workbench_state_label,
+                "state_detail": state_detail,
                 "deployed_at": st.deployed_at,
                 "expires_at": st.expires_at,
                 "remain_sec": max(0, int(st.expires_at - now)) if st.expires_at else None,
                 "connector_id": st.connector_id,
+                "connector_live": connector_live,
+                "connector_display": st.connector_id if connector_live else None,
+                "cooldown_remaining_sec": cooldown_remaining,
+                "retry_after_sec": None,
                 "last_result": st.last_result,
+                "last_error_detail": last_error_detail,
                 "consecutive_failures": st.consecutive_failures,
                 "cooldown_until": st.cooldown_until,
                 "eligible": st.is_eligible_for_deploy(now, self.daily_cooldown),

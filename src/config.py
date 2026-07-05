@@ -27,6 +27,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "health": {"interval_seconds": 300},
     "deploy": {"send_timeout": 900, "prompt_id": "deploy.v1.standard"},
+    "webui": {"history_limit": 10},
     "tunnel": {
         "public_hostname": "mimo.7786.pp.ua",
         "local_port": 8359,

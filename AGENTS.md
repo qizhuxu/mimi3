@@ -40,6 +40,28 @@
 - **Account states**: idle → needs_deploy → deploying → active → cooldown → relogin_needed → disabled
 - **All Claw instances share one tunnel URL** — Cloudflare load-balances across replicas. No per-account routing.
 
+## Trellis Workflow
+
+- Before starting any non-trivial change, inspect the current Trellis task with
+  `python ./.trellis/scripts/task.py current`.
+- If the user explicitly says to enter Trellis mode/task, use the Trellis CLI
+  immediately before reading or editing implementation files.
+- If the request is a new independent goal with its own acceptance criteria
+  (for example a new feature version, frontend redesign, broad test coverage,
+  state-model change, or workflow-rule update), proactively ask whether to
+  create/switch to a dedicated Trellis task; if the user has already clearly
+  asked for Trellis workflow, create or switch to the matching task instead of
+  continuing under an unrelated current task.
+- If the current Trellis task does not match the user's newest request, pause
+  implementation and ask whether to enter an existing task or create a new one.
+- Before editing code for a Trellis-scoped task, read that task's `prd.md`,
+  `design.md` when present, `implement.md` when present, run
+  `python ./.trellis/scripts/get_context.py --mode packages`, then start the
+  task with `python ./.trellis/scripts/task.py start <task-dir>`.
+- Keep task scope honest: small follow-up fixes may stay in the active task,
+  but separate deliverables should get a separate Trellis task or an explicit
+  user confirmation to reuse the current one.
+
 ## Running
 
 ```bash
@@ -72,7 +94,7 @@ uv run --env-file .env python test/test_inject.py <creds_file>
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **mimi3** (454 symbols, 884 relationships, 37 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **mimi3** (1097 symbols, 2967 relationships, 80 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

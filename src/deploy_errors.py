@@ -14,8 +14,10 @@ from typing import Optional
 
 # cookie 失效——任意 HTTP 401 或 WS 鉴权拒绝。终态，不重试，标记账号待重登录。
 AUTH_EXPIRED = "auth_expired"
-# code=7001 创建限流（每小时 1 次）。只复用不重发创建。
+# code=7001 创建额度限制（24h 滚动窗口内已创建过实例）。只复用不重发创建。
 CREATE_RATE_LIMITED = "create_rate_limited"
+# HTTP 429 / 高峰期创建限流。短时间重试后回到下一个调度周期，不消耗 24h 创建额度。
+CREATE_PEAK_RATE_LIMITED = "create_peak_rate_limited"
 # status=CREATE_FAILED/DESTROYED/ERROR。账号无 Claw 权限，长冷却。
 CREATE_FAILED = "create_failed"
 # WS res error PROTOCOL_MISMATCH。配置错（需改代码），不重试。
@@ -40,7 +42,7 @@ VERIFY_FAILED = "verify_failed"
 SUCCESS = "success"
 
 ALL = frozenset({
-    AUTH_EXPIRED, CREATE_RATE_LIMITED, CREATE_FAILED, PROTOCOL_MISMATCH,
+    AUTH_EXPIRED, CREATE_RATE_LIMITED, CREATE_PEAK_RATE_LIMITED, CREATE_FAILED, PROTOCOL_MISMATCH,
     WS_CONNECT_FAILED, HANDSHAKE_TIMEOUT, TICKET_SYNC_DELAY, SEND_TIMEOUT,
     WS_DISCONNECTED, NETWORK_ERROR, DEPLOY_REFUSED, VERIFY_FAILED, SUCCESS,
 })
@@ -100,7 +102,7 @@ def classify_http_error(status: int, code: Optional[int] = None) -> Optional[str
     if code == _RATE_LIMITED_CODE:
         return CREATE_RATE_LIMITED
     if status == 429:
-        return CREATE_RATE_LIMITED
+        return CREATE_PEAK_RATE_LIMITED
     if status == 400:
         # ticket 接口 400 = 同步延迟，_get_ticket 内置重试已处理
         return TICKET_SYNC_DELAY
@@ -191,7 +193,7 @@ if __name__ == "__main__":
     # 快速冒烟测
     assert classify_http_error(401) == AUTH_EXPIRED
     assert classify_http_error(200) is None
-    assert classify_http_error(429) == CREATE_RATE_LIMITED
+    assert classify_http_error(429) == CREATE_PEAK_RATE_LIMITED
     assert classify_http_error(400) == TICKET_SYNC_DELAY
     assert classify_instance_status("AVAILABLE") == SUCCESS
     assert classify_instance_status("CREATE_FAILED") == CREATE_FAILED

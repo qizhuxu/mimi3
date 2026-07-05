@@ -3,92 +3,460 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>mimi3 Operator Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>mimi3 · 运维控制台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-[#020617] text-[#F8FAFC] font-sans antialiased min-h-screen">
-
-  <!-- ═══ Top Bar ═══ -->
-  <header class="sticky top-0 z-50 bg-[#0F172A]/95 backdrop-blur border-b border-[#334155] px-6 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <span class="text-[#22C55E] font-bold text-lg tracking-wider font-heading">mimi3</span>
-      <span class="text-[#64748B] text-sm font-light hidden sm:inline">Operator Dashboard</span>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="header-left">
+        <span class="logo">mimi3</span>
+        <span class="header-subtitle">运维控制台</span>
+      </div>
+      <div class="header-center">
+        <nav class="nav-tabs" aria-label="主导航">
+          <button class="nav-tab active" data-page="home" aria-current="page">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            运行详情
+          </button>
+          <button class="nav-tab" data-page="detail">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><rect x="8" y="11" width="3" height="5"/><rect x="14" y="7" width="3" height="9"/></svg>
+            账号工作台
+          </button>
+          <button class="nav-tab" data-page="scheduler">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h7"/><path d="M17 15l3 3-3 3"/></svg>
+            调度队列
+          </button>
+          <button class="nav-tab" data-page="history">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            部署历史
+          </button>
+          <button class="nav-tab" data-page="config">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            配置
+          </button>
+        </nav>
+      </div>
+      <div class="header-right">
+        <span id="refresh-indicator" class="header-ts"></span>
+        <button id="btn-refresh" class="btn btn-ghost btn-icon" title="刷新 (r)" aria-label="刷新数据">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+        <button id="btn-auto-refresh" class="btn btn-sm" data-active="true" aria-label="自动刷新开关">自动 5s</button>
+        <button id="btn-reload-config" class="btn btn-ghost btn-sm" aria-label="重载配置">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          重载配置
+        </button>
+        <button id="btn-logout" class="btn btn-ghost btn-sm" aria-label="退出登录" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+          退出
+        </button>
+      </div>
     </div>
-    <div class="flex items-center gap-3">
-      <span id="refresh-indicator" class="text-xs text-[#64748B]"></span>
-      <button id="btn-reload-config" class="px-3 py-1.5 text-xs rounded bg-[#1E293B] hover:bg-[#334155] border border-[#334155] transition-colors duration-150" title="重载配置 config.json + .env">
-        重载配置
-      </button>
-      <button id="btn-refresh" class="px-3 py-1.5 text-xs rounded bg-[#1E293B] hover:bg-[#334155] border border-[#334155] transition-colors duration-150">
-        刷新
-      </button>
-      <button id="btn-auto-refresh" class="px-3 py-1.5 text-xs rounded border transition-colors duration-150" data-active="true">
-        自动刷新 5s
-      </button>
-    </div>
+    <div class="header-accent"></div>
   </header>
 
-  <main class="max-w-[1440px] mx-auto px-6 py-5 space-y-5">
+  <main>
+    <section id="page-home" class="page-view home-page" aria-labelledby="home-title">
+      <section class="home-dashboard">
+        <div class="home-hero">
+          <div class="section-kicker">运行详情</div>
+          <h1 id="home-title" class="home-title">当前运行状态</h1>
+          <div class="home-hero-grid">
+            <div class="home-primary-metric">
+              <span id="home-active" class="home-number display">-</span>
+              <span class="home-target">/ <span id="home-target">-</span> 运行目标</span>
+            </div>
+            <div id="home-coverage" class="coverage-pill">加载中</div>
+          </div>
+          <div class="home-meter" aria-label="首页运行覆盖率">
+            <div id="home-active-bar" class="home-meter-fill" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="home-side">
+          <div class="home-card home-card-action">
+            <span class="home-card-label">下一步</span>
+            <strong id="home-next-action">加载中</strong>
+            <span id="home-next-detail" class="home-card-detail">-</span>
+          </div>
+          <div id="home-scheduler-controls" class="home-scheduler-controls">
+            <div class="ph">加载调度状态...</div>
+          </div>
+          <button id="btn-open-detail" class="home-detail-button" type="button">
+            进入账号工作台
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </section>
 
-    <!-- ═══ Overview Cards ═══ -->
-    <section id="overview-cards" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="stat-card"><div class="stat-value" data-stat="active">—</div><div class="stat-label">活跃</div></div>
-      <div class="stat-card"><div class="stat-value" data-stat="cooldown">—</div><div class="stat-label">冷却中</div></div>
-      <div class="stat-card"><div class="stat-value" data-stat="attention">—</div><div class="stat-label">需关注</div></div>
-      <div class="stat-card"><div class="stat-value" data-stat="reserve">—</div><div class="stat-label">储备池</div></div>
+      <section class="home-kpis" aria-label="首页关键指标">
+        <div class="home-kpi">
+          <span class="home-kpi-label">储备池</span>
+          <strong id="home-reserve" class="display">-</strong>
+          <span id="home-reserve-note">-</span>
+        </div>
+        <div class="home-kpi">
+          <span class="home-kpi-label">待部署</span>
+          <strong id="home-due" class="display">-</strong>
+          <span id="home-due-note">-</span>
+        </div>
+        <div class="home-kpi">
+          <span class="home-kpi-label">风险</span>
+          <strong id="home-risk" class="display">-</strong>
+          <span id="home-risk-note">-</span>
+        </div>
+        <div class="home-kpi">
+          <span class="home-kpi-label">冷却</span>
+          <strong id="home-cooldown" class="display">-</strong>
+          <span id="home-cooldown-note">-</span>
+        </div>
+      </section>
+
+      <section class="home-lanes">
+        <div class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              运行账号
+            </h2>
+            <span id="home-running-count" class="count-badge">-</span>
+          </div>
+          <div id="home-running-list" class="home-list panel-body">
+            <div class="ph">加载中...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              待处理
+            </h2>
+            <span id="home-action-count" class="count-badge">-</span>
+          </div>
+          <div id="home-action-list" class="home-list panel-body">
+            <div class="ph">加载中...</div>
+          </div>
+        </div>
+      </section>
     </section>
 
-    <!-- ═══ Scheduler Panel ═══ -->
-    <section id="scheduler-panel" class="bg-[#0F172A] rounded-lg border border-[#334155] p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider font-heading">调度计划</h2>
+    <section id="page-detail" class="page-view detail-page workbench-page hidden" aria-label="账号工作台">
+    <section id="command-center" class="command-center" aria-labelledby="command-title">
+      <div class="command-hero">
+        <div class="section-kicker">运行指挥区</div>
+        <h1 id="command-title" class="command-title">当前运行账号</h1>
+        <div class="hero-metric">
+          <span id="running-count" class="hero-number display">-</span>
+          <span class="hero-target">/ <span id="target-count">-</span> 目标</span>
+        </div>
+        <div id="coverage-status" class="coverage-pill">加载中</div>
+        <div class="bullet-meter" aria-label="运行账号与目标账号对比">
+          <div id="active-target-bar" class="bullet-meter-fill" style="width:0%"></div>
+          <span id="active-target-marker" class="bullet-meter-marker" style="left:0%"></span>
+        </div>
       </div>
-      <div id="scheduler-content" class="text-sm text-[#CBD5E1] space-y-1">
-        <!-- filled by JS -->
-      </div>
-    </section>
-
-    <!-- ═══ Account Table ═══ -->
-    <section id="account-table-section" class="bg-[#0F172A] rounded-lg border border-[#334155] overflow-hidden">
-      <div class="px-4 py-3 border-b border-[#334155] flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider font-heading">账号池</h2>
-        <span id="account-count" class="text-xs text-[#64748B]"></span>
-      </div>
-      <div class="overflow-x-auto">
-        <table id="account-table" class="w-full text-sm">
-          <thead>
-            <tr class="text-[#64748B] text-xs uppercase tracking-wider border-b border-[#334155]">
-              <th class="text-left px-4 py-3 font-medium">UID</th>
-              <th class="text-left px-4 py-3 font-medium">状态</th>
-              <th class="text-right px-4 py-3 font-medium">剩余</th>
-              <th class="text-left px-4 py-3 font-medium font-mono hidden md:table-cell">Connector</th>
-              <th class="text-center px-4 py-3 font-medium hidden lg:table-cell">失败</th>
-              <th class="text-center px-4 py-3 font-medium">健康</th>
-              <th class="text-right px-4 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody id="table-body">
-            <!-- filled by JS -->
-          </tbody>
-        </table>
-      </div>
-      <div id="table-empty" class="hidden text-center py-12 text-[#64748B]">
-        <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
-        <p>暂无账号数据</p>
-        <p class="text-xs mt-1">检查 data/creds/ 目录是否有凭据文件</p>
+      <div class="command-main">
+        <div class="command-block">
+          <div class="block-head">
+            <h2>正在运行</h2>
+            <span id="running-summary" class="count-badge">-</span>
+          </div>
+          <div id="running-strip" class="running-strip">
+            <div class="ph">加载中...</div>
+          </div>
+        </div>
+        <div class="command-block command-alerts">
+          <div class="block-head">
+            <h2>风险队列</h2>
+            <span id="critical-count" class="count-badge">-</span>
+          </div>
+          <div id="critical-queue" class="critical-queue">
+            <div class="ph">加载中...</div>
+          </div>
+        </div>
       </div>
     </section>
 
+    <section id="overview-cards" class="cards-grid" aria-label="账号状态概览">
+      <div class="stat-card" data-card="active">
+        <div class="stat-head">
+          <div class="stat-icon stat-icon-active">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          </div>
+          <span class="stat-label">运行中</span>
+        </div>
+        <div class="stat-value display" data-stat="active">-</div>
+        <div class="stat-note" data-stat-note="active">-</div>
+      </div>
+      <div class="stat-card" data-card="cooldown">
+        <div class="stat-head">
+          <div class="stat-icon stat-icon-cooldown">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <span class="stat-label">冷却中</span>
+        </div>
+        <div class="stat-value display" data-stat="cooldown">-</div>
+        <div class="stat-note" data-stat-note="cooldown">-</div>
+      </div>
+      <div class="stat-card" data-card="attention">
+        <div class="stat-head">
+          <div class="stat-icon stat-icon-attention">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <span class="stat-label">需关注</span>
+        </div>
+        <div class="stat-value display" data-stat="attention">-</div>
+        <div class="stat-note" data-stat-note="attention">-</div>
+      </div>
+      <div class="stat-card" data-card="reserve">
+        <div class="stat-head">
+          <div class="stat-icon stat-icon-reserve">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          </div>
+          <span class="stat-label">储备池</span>
+        </div>
+        <div class="stat-value display" data-stat="reserve">-</div>
+        <div class="stat-note" data-stat-note="reserve">-</div>
+      </div>
+    </section>
+
+    <section id="pool-gauge" class="panel pool-panel" aria-labelledby="pool-title">
+      <div class="panel-header">
+        <h2 id="pool-title" class="panel-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16l4-4 3 3 5-7"/></svg>
+          池状态
+        </h2>
+        <span id="pool-total" class="count-badge">-</span>
+      </div>
+      <div class="panel-body">
+        <div id="pool-segment" class="pool-segment" aria-label="账号池状态比例"></div>
+        <div id="pool-legend" class="pool-legend"></div>
+      </div>
+    </section>
+
+    <div class="content-layout">
+      <div class="content-primary">
+        <section id="scheduler-panel" class="panel" aria-labelledby="scheduler-title">
+          <div class="panel-header">
+            <h2 id="scheduler-title" class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              调度计划
+            </h2>
+          </div>
+          <div id="scheduler-content" class="panel-body">
+            <div class="ph">加载中...</div>
+          </div>
+        </section>
+
+        <section id="account-table-section" class="panel" aria-labelledby="account-title">
+          <div class="panel-header workbench-header">
+            <div>
+              <h2 id="account-title" class="panel-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                账号工作台
+              </h2>
+              <p class="panel-subtitle">账号状态、批量导入、部署、启停与失效账号处理</p>
+            </div>
+            <span id="account-count" class="count-badge"></span>
+          </div>
+          <div class="workbench-toolbar">
+            <label class="search-box">
+              <span class="sr-only">搜索账号</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input id="account-search" type="search" placeholder="搜索账号编号 / 名称 / 连接器" autocomplete="off">
+            </label>
+            <div class="filter-tabs" role="group" aria-label="账号状态筛选">
+              <button class="filter-tab active" data-filter="all">全部</button>
+              <button class="filter-tab" data-filter="running">运行中</button>
+              <button class="filter-tab" data-filter="cooldown">冷却中</button>
+              <button class="filter-tab" data-filter="idle">空闲中</button>
+              <button class="filter-tab" data-filter="token_invalid">token 失效</button>
+            </div>
+            <button id="btn-import-accounts" class="action-btn action-btn-primary workbench-import-btn" type="button">
+              批量导入账号
+            </button>
+            <label class="sort-select">
+              <span>排序</span>
+              <select id="account-sort">
+                <option value="priority">运营优先</option>
+                <option value="remain">剩余/等待</option>
+                <option value="state">状态</option>
+                <option value="uid">UID</option>
+              </select>
+            </label>
+          </div>
+          <div class="overflow-x-auto">
+            <table id="account-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>UID</th>
+                  <th>状态</th>
+                  <th class="tar">剩余/等待</th>
+                  <th>健康</th>
+                  <th class="hidden md">连接器</th>
+                  <th class="tac hidden lg">失败</th>
+                  <th class="hidden lg">结果</th>
+                  <th class="tar">操作</th>
+                </tr>
+              </thead>
+              <tbody id="table-body"><tr><td colspan="8" class="tac ph" style="padding:32px">加载中...</td></tr></tbody>
+            </table>
+          </div>
+          <div id="table-empty" class="hidden empty-state">
+            <p>暂无匹配账号</p>
+            <p class="ph mt-1">调整筛选或检查凭据目录</p>
+          </div>
+        </section>
+      </div>
+
+      <aside class="content-rail" aria-label="账号操作侧栏">
+        <section id="config-panel" class="panel" aria-labelledby="config-title">
+          <div class="panel-header">
+            <h2 id="config-title" class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4Z"/></svg>
+              配置状态
+            </h2>
+            <span id="config-updated" class="count-badge">-</span>
+          </div>
+          <div id="config-status" class="panel-body">
+            <div class="ph">加载中...</div>
+          </div>
+        </section>
+
+        <aside id="side-panel" class="side-panel hidden" aria-labelledby="side-title">
+          <div class="panel panel-full">
+            <div class="panel-header">
+              <div>
+                <h2 id="side-title" class="panel-title">账号操作台</h2>
+                <p class="panel-subtitle">单账号部署与启停</p>
+              </div>
+              <button id="btn-close-side" class="btn btn-ghost btn-xs" aria-label="关闭详情">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div id="side-content" class="panel-body"><div class="ph">点击账号查看详情</div></div>
+          </div>
+        </aside>
+      </aside>
+    </div>
+    </section>
+
+    <section id="page-scheduler" class="page-view scheduler-page hidden" aria-labelledby="scheduler-page-title">
+      <section class="scheduler-hero">
+        <div>
+          <h1 id="scheduler-page-title" class="scheduler-title">调度队列</h1>
+          <p class="scheduler-subtitle">启动或停止多账号调度循环，执行一次调度，或手动执行当前待部署队列。</p>
+        </div>
+        <div id="scheduler-status-strip" class="scheduler-status-strip">
+          <div class="ph">加载调度状态...</div>
+        </div>
+      </section>
+
+      <section class="scheduler-actions-panel panel">
+        <div class="panel-header">
+          <h2 class="panel-title">调度操作</h2>
+          <span id="scheduler-operation-badge" class="count-badge">-</span>
+        </div>
+        <div id="scheduler-actions" class="scheduler-actions panel-body">
+          <div class="ph">加载操作...</div>
+        </div>
+      </section>
+
+      <section class="scheduler-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">待部署队列</h2>
+            <span id="scheduler-due-count" class="count-badge">-</span>
+          </div>
+          <div id="scheduler-queue" class="scheduler-queue panel-body">
+            <div class="ph">加载队列...</div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">最近调度结果</h2>
+            <span id="scheduler-last-time" class="count-badge">-</span>
+          </div>
+          <div id="scheduler-last-operation" class="scheduler-last-operation panel-body">
+            <div class="ph">暂无调度操作</div>
+          </div>
+        </section>
+      </section>
+    </section>
+
+    <section id="page-history" class="page-view history-page hidden" aria-labelledby="history-title">
+      <section class="history-hero">
+        <div class="history-hero-copy">
+          <span class="history-kicker">运行记录</span>
+          <h1 id="history-title" class="history-page-title">部署历史</h1>
+          <p class="history-page-subtitle">按账号状态生成最近部署、冷却、凭据失效和禁用事件，用于排查真实业务链路。</p>
+        </div>
+        <form id="history-limit-form" class="history-limit-form" aria-label="部署历史显示条数">
+          <label for="history-limit-input">显示条数</label>
+          <div class="history-limit-controls">
+            <input id="history-limit-input" name="history_limit" type="number" min="1" max="200" value="10" inputmode="numeric">
+            <button id="btn-history-limit-apply" class="btn btn-sm" type="submit">应用</button>
+            <button id="btn-history-limit-save" class="btn btn-ghost btn-sm" type="button">保存默认</button>
+          </div>
+          <p id="history-limit-note">默认显示 10 条，最多 200 条。</p>
+        </form>
+      </section>
+
+      <section class="history-summary" aria-label="部署历史概览">
+        <div class="history-metric"><span>事件</span><strong id="history-total" class="display">-</strong></div>
+        <div class="history-metric"><span>成功</span><strong id="history-success" class="display">-</strong></div>
+        <div class="history-metric"><span>失败</span><strong id="history-failed" class="display">-</strong></div>
+        <div class="history-metric"><span>冷却</span><strong id="history-cooldown" class="display">-</strong></div>
+        <div class="history-metric"><span>需处理</span><strong id="history-action" class="display">-</strong></div>
+      </section>
+
+      <section class="panel history-panel" aria-labelledby="history-list-title">
+        <div class="panel-header history-panel-header">
+          <div>
+            <h2 id="history-list-title" class="panel-title">事件时间线</h2>
+            <p id="history-showing" class="panel-subtitle">默认显示最近 10 条，点击账号可跳转到账号工作台详情。</p>
+          </div>
+          <div class="history-panel-actions">
+            <div class="history-filter" role="group" aria-label="部署历史筛选">
+              <button class="history-filter-btn active" data-history-filter="all">全部</button>
+              <button class="history-filter-btn" data-history-filter="deploy">部署</button>
+              <button class="history-filter-btn" data-history-filter="cooldown">冷却</button>
+              <button class="history-filter-btn" data-history-filter="account">账号</button>
+              <button class="history-filter-btn" data-history-filter="danger">需处理</button>
+            </div>
+            <div class="history-toolbar-actions">
+              <button id="btn-history-refresh" class="btn btn-ghost btn-sm" type="button">刷新历史</button>
+              <button id="btn-history-workbench" class="btn btn-sm" type="button">账号工作台</button>
+            </div>
+          </div>
+        </div>
+        <div id="history-list" class="history-list panel-body">
+          <div class="ph">加载中...</div>
+        </div>
+      </section>
+    </section>
+
+    <section id="page-config" class="page-view config-page hidden" aria-labelledby="config-page-title">
+      <section class="config-editor-hero">
+        <div>
+          <h1 id="config-page-title" class="config-editor-title">配置中心</h1>
+          <p class="config-editor-subtitle">项目参数、隧道凭据和提示词模板。</p>
+        </div>
+        <div class="config-editor-actions">
+          <button id="btn-config-page-reload" class="btn btn-sm" type="button">重载配置</button>
+        </div>
+      </section>
+
+      <section id="config-page-content" class="config-page-grid">
+        <div class="ph">加载中...</div>
+      </section>
+    </section>
   </main>
 
-  <!-- ═══ Toast Container ═══ -->
-  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
-
-  <!-- ═══ Scripts ═══ -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

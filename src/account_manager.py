@@ -19,7 +19,7 @@ from account_store import (
 )
 from claw_deployer import ClawDeployer, DeployResult, build_logger, credentials_to_client_params
 from deploy_errors import (
-    AUTH_EXPIRED, CREATE_FAILED, CREATE_RATE_LIMITED, DEPLOY_REFUSED,
+    AUTH_EXPIRED, CREATE_FAILED, CREATE_PEAK_RATE_LIMITED, CREATE_RATE_LIMITED, DEPLOY_REFUSED,
     NETWORK_ERROR, VERIFY_FAILED, needs_relogin,
 )
 from health_monitor import HealthMonitor, probe_status
@@ -58,6 +58,7 @@ class AccountManager:
         self.send_timeout = send_timeout
         self._semaphore = asyncio.Semaphore(max_concurrent_deploys)
         self._cancelled = False
+        self._stop_event = asyncio.Event()
 
     # ---------------- 启动对账 ----------------
     async def reconcile_on_boot(self) -> None:
@@ -108,6 +109,8 @@ class AccountManager:
 
     # ---------------- 主循环 ----------------
     async def run(self) -> None:
+        self._cancelled = False
+        self._stop_event.clear()
         await self.reconcile_on_boot()
         tick = self.config.get("scheduler.tick_seconds", 30)
         self.logger.info(f"=== 主循环启动 tick={tick}s ===")
@@ -116,11 +119,15 @@ class AccountManager:
                 await self._tick()
             except Exception as e:
                 self.logger.exception(f"主循环 tick 异常: {e}")
-            await asyncio.sleep(tick)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=tick)
+            except asyncio.TimeoutError:
+                pass
         self.logger.info("主循环已退出")
 
     def stop(self) -> None:
         self._cancelled = True
+        self._stop_event.set()
 
     async def _tick(self) -> None:
         now = time.time()
@@ -227,7 +234,18 @@ class AccountManager:
                 # 当天花配额 → 24h 冷却起算
                 st.deploy_state = S_COOLDOWN
                 st.deployed_at = now  # 冷却从这次尝试起算
+                if et == CREATE_RATE_LIMITED:
+                    st.last_error_detail = "7001限流"
                 self.logger.warning(f"[{uid}] {et} → 24h 冷却")
+            elif et == CREATE_PEAK_RATE_LIMITED:
+                # 高峰限流不代表 24h 创建额度已消耗，回到下一个调度周期。
+                st.deploy_state = S_IDLE
+                st.deployed_at = None
+                st.expires_at = None
+                st.connector_id = None
+                st.cooldown_until = None
+                st.last_error_detail = "高峰限流"
+                self.logger.warning(f"[{uid}] {et} → 下个调度周期重试")
             elif et == NETWORK_ERROR:
                 # 没创建成功不算花配额，短退避后可重试
                 st.deploy_state = S_IDLE

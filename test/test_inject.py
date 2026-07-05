@@ -28,24 +28,29 @@ if str(_SRC) not in sys.path:
 
 from claw_client import NativeClawClient
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # test/../.. → 项目根
-# 凭据路径可由 argv[1] 指定，默认沿用 6877172098（已移到 creds/）
-USER_FILE = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE_DIR / "creds" / "user_6877172098.json"
-# prompt：argv[2] 指定自定义 prompt 文件；否则走 PromptStore（占位符已替换，无硬编码密钥）
-USER_PROMPT_FILE = Path(sys.argv[2]) if len(sys.argv) > 2 else None
-# 输出按 uid 区分到 logs/，避免多实例并行互相覆盖
-_USER_STEM = USER_FILE.stem  # user_<uid>
-CONVERSATION_LOG = BASE_DIR / "data" / "logs" / f"conversation_log_{_USER_STEM}.jsonl"
-SUMMARY_LOG = BASE_DIR / "data" / "logs" / f"conversation_summary_{_USER_STEM}.md"
+BASE_DIR = Path(__file__).resolve().parent.parent  # test/.. → 项目根
+DEFAULT_USER_FILE = BASE_DIR / "data" / "creds" / "user_6877172098.json"
 
-# 加载注入提示词
-if USER_PROMPT_FILE is not None:
-    with open(USER_PROMPT_FILE, "r", encoding="utf-8") as _f:
-        INJECT_PROMPT = _f.read().strip()
-else:
+
+def _load_inject_prompt(prompt_file: Path | None) -> str:
+    if prompt_file is not None:
+        with open(prompt_file, "r", encoding="utf-8") as _f:
+            return _f.read().strip()
+
     from prompt_store import PromptStore
+
     _store = PromptStore(BASE_DIR / "data" / "prompts" / "templates.json")
-    INJECT_PROMPT = _store.get("deploy.v1.standard").text.strip()
+    return _store.get("deploy.v1.standard").text.strip()
+
+
+def _runtime_inputs(argv: list[str]) -> tuple[Path, str, Path, Path]:
+    # Keep file I/O out of module import so unittest discovery can import this script.
+    user_file = Path(argv[1]) if len(argv) > 1 else DEFAULT_USER_FILE
+    prompt_file = Path(argv[2]) if len(argv) > 2 else None
+    user_stem = user_file.stem
+    conversation_log = BASE_DIR / "data" / "logs" / f"conversation_log_{user_stem}.jsonl"
+    summary_log = BASE_DIR / "data" / "logs" / f"conversation_summary_{user_stem}.md"
+    return user_file, _load_inject_prompt(prompt_file), conversation_log, summary_log
 
 # 部署任务很重（git clone + 下载二进制 + 跑 deploy + 验证），给足超时
 SEND_TIMEOUT = 900  # 15 分钟
@@ -194,7 +199,8 @@ def build_logger() -> logging.Logger:
 
 async def main():
     logger = build_logger()
-    user = load_credentials(USER_FILE)
+    user_file, inject_prompt, conversation_log, summary_log = _runtime_inputs(sys.argv)
+    user = load_credentials(user_file)
     uid = user.get("userId", "")
     ph = user.get("xiaomichatbot_ph", "")
     cookies = {
@@ -205,23 +211,23 @@ async def main():
     name = user.get("name", uid)
 
     # 清旧日志
-    if CONVERSATION_LOG.exists():
-        CONVERSATION_LOG.unlink()
-    if SUMMARY_LOG.exists():
-        SUMMARY_LOG.unlink()
+    if conversation_log.exists():
+        conversation_log.unlink()
+    if summary_log.exists():
+        summary_log.unlink()
 
     logger.info(f"=== claw 注入测试开始 uid={uid} name={name} ===")
-    logger.info(f"凭据文件: {USER_FILE}")
-    logger.info(f"对话日志: {CONVERSATION_LOG}")
+    logger.info(f"凭据文件: {user_file}")
+    logger.info(f"对话日志: {conversation_log}")
 
     client = RecordingClawClient(
-        ph=ph, cookies=cookies, logger_obj=logger, record_path=CONVERSATION_LOG
+        ph=ph, cookies=cookies, logger_obj=logger, record_path=conversation_log
     )
 
     t0 = time.time()
     try:
         logger.info(">>> Step 1: connect (创建实例 + WS 握手)")
-        # 先查状态：已 AVAILABLE 就跳过创建（避免触发每小时 1 次的创建限流）
+        # 先查状态：已 AVAILABLE 就跳过创建（避免触发 24h 创建额度限制）
         status, remain = await client.get_instance_status()
         logger.info(f"    当前实例状态: status={status!r} 剩余={remain}s")
         if status == "AVAILABLE":
@@ -237,7 +243,7 @@ async def main():
         logger.info(">>> Step 2: send_message 注入 skill 提示词")
         t1 = time.time()
         reply = await client.send_message(
-            INJECT_PROMPT,
+            inject_prompt,
             timeout=SEND_TIMEOUT,
             stage="skill.inject",
             prompt_id="mimo-proxy-deploy.v1",
@@ -246,20 +252,20 @@ async def main():
         logger.info(f"<<< send_message 返回 (耗时 {elapsed:.1f}s)")
 
         # 写摘要
-        with open(SUMMARY_LOG, "w", encoding="utf-8") as f:
+        with open(summary_log, "w", encoding="utf-8") as f:
             f.write("# Claw 注入测试摘要\n\n")
             f.write(f"- uid: {uid}\n- name: {name}\n")
             f.write(f"- 连接耗时: {time.time()-t0:.1f}s\n")
             f.write(f"- 注入回复耗时: {elapsed:.1f}s\n")
-            f.write(f"- 对话日志: {CONVERSATION_LOG.name}\n\n")
+            f.write(f"- 对话日志: {conversation_log.name}\n\n")
             f.write("## 注入提示词\n\n```\n")
-            f.write(INJECT_PROMPT)
+            f.write(inject_prompt)
             f.write("\n```\n\n")
             f.write("## Claw 最终回复\n\n```\n")
             f.write(reply or "(空)")
             f.write("\n```\n")
-        logger.info(f"摘要已写入: {SUMMARY_LOG}")
-        logger.info(f"对话日志: {CONVERSATION_LOG} ({CONVERSATION_LOG.stat().st_size} bytes)")
+        logger.info(f"摘要已写入: {summary_log}")
+        logger.info(f"对话日志: {conversation_log} ({conversation_log.stat().st_size} bytes)")
         logger.info(f"=== 最终回复预览 ===\n{reply[:500] if reply else '(空)'}")
         return 0
     except Exception as e:

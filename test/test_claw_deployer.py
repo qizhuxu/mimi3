@@ -6,15 +6,16 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from claw_client import safe_claw_trace_text
+from claw_client import NativeClawClient, safe_claw_trace_text
 from claw_deployer import ClawDeployer, DeployError, RecordingClawClient
-from deploy_errors import SEND_TIMEOUT, VERIFY_FAILED, WS_DISCONNECTED
+from deploy_errors import CREATE_PEAK_RATE_LIMITED, CREATE_RATE_LIMITED, SEND_TIMEOUT, VERIFY_FAILED, WS_DISCONNECTED
 
 
 class _PromptStore:
@@ -25,6 +26,18 @@ class _PromptStore:
 class _Client:
     async def close(self):
         return None
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, data: dict | None = None, text: str = ""):
+        self.status_code = status_code
+        self._data = data
+        self.text = text
+
+    def json(self):
+        if self._data is None:
+            raise ValueError("no json")
+        return self._data
 
 
 class ClawDeployerTests(unittest.IsolatedAsyncioTestCase):
@@ -57,6 +70,84 @@ class ClawDeployerTests(unittest.IsolatedAsyncioTestCase):
             await deployer._send_inject("prompt")
 
         self.assertEqual(cm.exception.error_type, WS_DISCONNECTED)
+
+    async def test_ws_handshake_reuses_available_instance_after_create_7001(self):
+        deployer = ClawDeployer.__new__(ClawDeployer)
+        deployer._logger = logging.getLogger("test-claw-deployer")
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+                self.last_create_error = {
+                    "reason": "api_code_error",
+                    "api_code": 7001,
+                    "detail": "今日额度已用完",
+                }
+
+            async def connect(self, wait_available=True):
+                self.calls.append(wait_available)
+                return len(self.calls) == 2
+
+        client = Client()
+        deployer.client = client
+        probe_calls = 0
+
+        async def probe_status():
+            nonlocal probe_calls
+            probe_calls += 1
+            return "AVAILABLE", 120, 200
+
+        deployer._probe_status = probe_status
+
+        ok = await deployer._ws_handshake(True)
+
+        self.assertTrue(ok)
+        self.assertEqual(client.calls, [True, False])
+        self.assertEqual(probe_calls, 1)
+        self.assertIsNone(client.last_create_error)
+
+    async def test_ws_handshake_reports_create_7001_after_reprobe_without_available_instance(self):
+        deployer = ClawDeployer.__new__(ClawDeployer)
+        deployer._logger = logging.getLogger("test-claw-deployer")
+        deployer.client = SimpleNamespace(
+            last_create_error={
+                "reason": "api_code_error",
+                "api_code": 7001,
+                "detail": "今日额度已用完",
+            },
+            connect=lambda wait_available=True: asyncio.sleep(0, result=False),
+        )
+        probe_calls = 0
+
+        async def probe_status():
+            nonlocal probe_calls
+            probe_calls += 1
+            return "NOT_CREATED", 0, 200
+
+        deployer._probe_status = probe_status
+
+        with self.assertRaises(DeployError) as cm:
+            await deployer._ws_handshake(True)
+
+        self.assertEqual(cm.exception.error_type, CREATE_RATE_LIMITED)
+        self.assertEqual(probe_calls, 1)
+
+    async def test_ws_handshake_reports_peak_create_rate_limit(self):
+        deployer = ClawDeployer.__new__(ClawDeployer)
+        deployer._logger = logging.getLogger("test-claw-deployer")
+        deployer.client = SimpleNamespace(
+            last_create_error={
+                "reason": "peak_rate_limited",
+                "api_code": None,
+                "detail": "HTTP 429",
+            },
+            connect=lambda wait_available=True: asyncio.sleep(0, result=False),
+        )
+
+        with self.assertRaises(DeployError) as cm:
+            await deployer._ws_handshake(True)
+
+        self.assertEqual(cm.exception.error_type, CREATE_PEAK_RATE_LIMITED)
 
     async def test_deploy_reconnects_before_retrying_ws_disconnected_send(self):
         deployer = ClawDeployer.__new__(ClawDeployer)
@@ -197,6 +288,70 @@ class ClawClientLoggingTests(unittest.TestCase):
         self.assertNotIn("eyJsecret-token", serialized)
         self.assertNotIn("proxy-secret", serialized)
         self.assertNotIn("service-secret", serialized)
+
+
+class ClawClientCreateRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_peak_rate_limit_retries_three_times_then_marks_peak_limit(self):
+        fake_http = SimpleNamespace(create_calls=0)
+
+        class FakeAsyncClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url, **kwargs):
+                if "agreement" in url:
+                    return _FakeResponse(200, {"code": 0})
+                fake_http.create_calls += 1
+                return _FakeResponse(429, {"message": "peak busy"})
+
+            async def get(self, url, **kwargs):
+                raise AssertionError("status polling should not run after repeated 429")
+
+        client = NativeClawClient("ph", {"userId": "u-peak"}, logging.getLogger("test-claw-client"))
+
+        with patch("claw_client.httpx.AsyncClient", return_value=FakeAsyncClient()), \
+             patch("claw_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            ok = await client._create_and_wait()
+
+        self.assertFalse(ok)
+        self.assertEqual(fake_http.create_calls, 3)
+        self.assertEqual(sleep_mock.await_count, 2)
+        self.assertEqual(client.last_create_error["reason"], "peak_rate_limited")
+        self.assertEqual(client.last_create_error["http_status"], 429)
+
+    async def test_create_7001_does_not_use_peak_retry_lane(self):
+        fake_http = SimpleNamespace(create_calls=0)
+
+        class FakeAsyncClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url, **kwargs):
+                if "agreement" in url:
+                    return _FakeResponse(200, {"code": 0})
+                fake_http.create_calls += 1
+                return _FakeResponse(429, {"code": 7001, "message": "daily quota"})
+
+            async def get(self, url, **kwargs):
+                raise AssertionError("status polling should not run after 7001")
+
+        client = NativeClawClient("ph", {"userId": "u7001"}, logging.getLogger("test-claw-client"))
+
+        with patch("claw_client.httpx.AsyncClient", return_value=FakeAsyncClient()), \
+             patch("claw_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            ok = await client._create_and_wait()
+
+        self.assertFalse(ok)
+        self.assertEqual(fake_http.create_calls, 1)
+        self.assertEqual(sleep_mock.await_count, 0)
+        self.assertEqual(client.last_create_error["reason"], "api_code_error")
+        self.assertEqual(client.last_create_error["api_code"], 7001)
 
 
 if __name__ == "__main__":

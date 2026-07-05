@@ -25,7 +25,7 @@ import httpx
 
 from claw_client import BASE_URL, NativeClawClient, _aistudio_headers, safe_claw_trace_text
 from deploy_errors import (
-    AUTH_EXPIRED, CREATE_FAILED, CREATE_RATE_LIMITED, DEPLOY_REFUSED,
+    AUTH_EXPIRED, CREATE_FAILED, CREATE_PEAK_RATE_LIMITED, CREATE_RATE_LIMITED, DEPLOY_REFUSED,
     NETWORK_ERROR, SEND_TIMEOUT, SUCCESS, VERIFY_FAILED, WS_CONNECT_FAILED,
     WS_DISCONNECTED,
     classify_instance_status, classify_reply, classify_ws_error,
@@ -337,6 +337,31 @@ class ClawDeployer:
         if ok:
             return True
         # connect 返回 False——先看 last_create_error（create API 失败的精确原因，区分 7001 限流等）
+        async def _reuse_after_create_limit(kind: str, detail: str) -> bool:
+            try:
+                st2, _, code2 = await self._probe_status()
+            except DeployError:
+                raise
+            except Exception as e:
+                raise DeployError(WS_CONNECT_FAILED, f"create {kind} 限流且回查 status 异常: {e}")
+            if code2 == 401:
+                raise DeployError(AUTH_EXPIRED, f"create {kind} 限流 + status 401：cookie 失效")
+            if st2 == "AVAILABLE":
+                self._logger.info(f"[ws] create {kind} 限流但实例已可用，复用现有实例")
+                if hasattr(self.client, "last_create_error"):
+                    self.client.last_create_error = None
+                try:
+                    reused = await self.client.connect(wait_available=False)
+                except Exception as e:
+                    et = classify_ws_error(e, phase="handshake")
+                    if et == AUTH_EXPIRED:
+                        raise DeployError(AUTH_EXPIRED, f"WS 复用握手鉴权失败: {e}")
+                    raise DeployError(et, f"WS 复用握手异常: {e}")
+                if reused:
+                    return True
+                raise DeployError(WS_CONNECT_FAILED, f"create {kind} 限流后复用可用实例失败，status={st2!r} http={code2}")
+            raise DeployError(CREATE_RATE_LIMITED, f"create {kind} 限流: {detail}; status={st2!r} http={code2}")
+
         ce = getattr(self.client, "last_create_error", None)
         if isinstance(ce, dict):
             reason = ce.get("reason")
@@ -344,11 +369,11 @@ class ClawDeployer:
             detail = ce.get("detail", "")
             if reason == "auth_expired":
                 raise DeployError(AUTH_EXPIRED, f"create 401: {detail}")
-            if reason == "rate_limited":  # HTTP 429
-                raise DeployError(CREATE_RATE_LIMITED, f"create 429 限流: {detail}")
+            if reason == "peak_rate_limited":  # HTTP 429
+                raise DeployError(CREATE_PEAK_RATE_LIMITED, f"create 429: {detail}")
             if reason == "api_code_error":
                 if api_code == 7001:
-                    raise DeployError(CREATE_RATE_LIMITED, f"create code=7001 限流: {detail}")
+                    return await _reuse_after_create_limit("code=7001", detail)
                 raise DeployError(CREATE_FAILED, f"create code={api_code}: {detail}")
             if reason in ("terminal_status", "timeout", "http_error"):
                 raise DeployError(CREATE_FAILED, f"create {reason}: {detail}")
