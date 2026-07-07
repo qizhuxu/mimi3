@@ -55,6 +55,7 @@ _ENV_KEYS = {
     "TUNNEL_TOKEN": "tunnel_token",
     "PROXY_API_KEY": "proxy_api_key",
     "PUBLIC_HOSTNAME": "tunnel.public_hostname",
+    "LOCAL_PORT": "tunnel.local_port",
 }
 
 
