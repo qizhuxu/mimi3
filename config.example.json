@@ -1,5 +1,5 @@
 {
-  "这是一份示例配置": "复制为 config.json（gitignored），按需改。env 值优先于此文件。",
+  "这是一份示例配置": "复制到 data/config/config.json（gitignored），按需改。env 值优先于此文件。",
 
   "pool": {
     "min_accounts": 8,

@@ -16,8 +16,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
+try:
+    from .config import ensure_config_file
+except ImportError:  # pragma: no cover - CLI imports modules from src/ directly
+    from config import ensure_config_file
 
-# 占位符 {{VAR}}：PromptStore.get/next_after 时用 config.json（或 env var）替换。
+
+# 占位符 {{VAR}}：PromptStore.get/next_after 时用 data/config/config.json（或 env var）替换。
 # 双花括号避免与 prompt 里的 Caddy {env.X} 单花括号引用冲突。
 _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
@@ -70,11 +75,11 @@ class PromptStore:
         self._logger.info("prompt_store 已加载 %d 个模板: %s", len(self._templates), list(self._templates))
 
     def _load_env(self) -> None:
-        """加载 env 替换值：config.json["prompt_store"]["substitution_values"]
+        """加载 env 替换值：data/config/config.json["prompt_store"]["substitution_values"]
         或旧 data/deploy_env.json（迁移兼容）。os.getenv 优先于文件值。"""
         self._env_values = {}
-        # 1. config.json（在项目根目录）
-        cfg = self.path.parent.parent.parent / "config.json"
+        # 1. data/config/config.json（旧根 config.json 会在首次读取时迁移）
+        cfg = ensure_config_file()
         if cfg.exists():
             try:
                 with open(cfg, encoding="utf-8") as f:
@@ -106,7 +111,7 @@ class PromptStore:
             val = os.getenv(var, "").strip() or self._env_values.get(var, "")
             if not val:
                 self._logger.warning(
-                    "prompt 占位符 {{%s}} 无值（.env 和 config.json 都没配），将带字面占位符发送",
+                    "prompt 占位符 {{%s}} 无值（.env 和 data/config/config.json 都没配），将带字面占位符发送",
                     var)
                 return m.group(0)
             return val

@@ -1,0 +1,24 @@
+.git/
+.gitnexus/
+.trellis/
+.claude/
+.agents/
+.codex/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.env
+config.json
+skills-lock.json
+CLAUDE.md
+
+data/creds/
+data/state/
+data/logs/
+data/config/
+
+test/results/
+# Legacy root output path; new runs write under test/results/test-results/.
+test-results/

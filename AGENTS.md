@@ -19,7 +19,7 @@
 - `src/claw_deployer.py`: ClawDeployer — full deploy flow (status → connect → inject → verify)
 - `src/deploy_errors.py`: error classification (classify_reply, error types)
 - `src/prompt_store.py`: prompt template management with `{{VAR}}` substitution
-- `src/config.py`: two-layer config loader (os.getenv + config.json)
+- `src/config.py`: two-layer config loader (os.getenv + data/config/config.json; root config.json is legacy fallback)
 - `src/tunnel_health.py`: tunnel endpoint health probe
 - `data/prompts/templates.json`: inject prompt templates (placeholders only, no secrets)
 - `data/prompts/_gen_templates.py`: prompt generator script
@@ -28,14 +28,14 @@
 - `webui/static/index.html`: operator dashboard HTML (Tailwind + Fira fonts)
 - `webui/static/app.js`: dashboard JS (auto-poll, actions, toasts, confirm dialogs)
 - `webui/static/style.css`: dashboard custom styles (dark theme, badges, health dots)
-- `data/`: runtime state (creds, state, logs) — gitignored; root `.env` and `config.json` are also gitignored
+- `data/`: runtime state (creds, state, logs, config) — gitignored except prompt templates; root `.env` and legacy `config.json` are also gitignored
 
 ## Key Conventions
 
-- **Config layering**: `.env` for secrets (os.getenv), `config.json` for operational params
+- **Config layering**: `.env` for secrets (os.getenv), `data/config/config.json` for operational params
 - **Auth layering**: user → Claw (PROXY_API_KEY via Caddy), Claw → MiMo (MIMO_API_KEY upstream header)
 - **Cooldown**: 24h rolling cooldown per account after each deploy
-- **Prompt templates**: `{{VAR}}` placeholders in `templates.json`, substituted at runtime from `.env` + `config.json`
+- **Prompt templates**: `{{VAR}}` placeholders in `templates.json`, substituted at runtime from `.env` + `data/config/config.json`
 - **Error classification**: `classify_reply()` checks success markers BEFORE refused markers (strong markers only, no bare emoji)
 - **Account states**: idle → needs_deploy → deploying → active → cooldown → relogin_needed → disabled
 - **All Claw instances share one tunnel URL** — Cloudflare load-balances across replicas. No per-account routing.

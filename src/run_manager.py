@@ -41,7 +41,7 @@ BASE_DIR = _SRC.parent  # src/.. → 项目根目录（data/creds/ data/state/ d
 
 
 def _config() -> dict:
-    # 用新 config.py 加载（.env + config.json 两源合并）
+    # 用新 config.py 加载（.env + data/config/config.json 两源合并）
     from config import settings
     c = settings()
     return {

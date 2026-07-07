@@ -1,0 +1,17 @@
+services:
+  mimi3-webui:
+    build: .
+    container_name: mimi3-webui
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8358:8358"
+    volumes:
+      - ./data/creds:/app/data/creds
+      - ./data/state:/app/data/state
+      - ./data/logs:/app/data/logs
+      - ./data/prompts:/app/data/prompts
+      - ./data/config:/app/data/config

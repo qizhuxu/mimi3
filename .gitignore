@@ -20,9 +20,17 @@ config.json
 
 # 账号运行时状态（每个账号一个 state.json，user_*.json 模式已覆盖）
 data/state/
+data/config/
+
+# Test run artifacts; test source files under test/ stay tracked.
+test/results/
+# Legacy root output path; new runs write under test/results/test-results/.
+test-results/
 
 # 开发环境 / IDE / 工作流（不提交）
 .claude/
+.agents/
+.codex/
 .trellis/
 CLAUDE.md
 skills-lock.json

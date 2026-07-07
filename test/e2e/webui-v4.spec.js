@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const BASE_URL = process.env.WEBUI_BASE_URL || 'http://127.0.0.1:8358';
-const OUT_DIR = path.resolve(process.cwd(), 'test-results');
+const OUT_DIR = path.resolve(process.cwd(), 'test', 'results', 'test-results');
 const DEBUG_PORT = Number(process.env.CHROME_DEBUG_PORT || 9337);
 const REAL_E2E = process.env.WEBUI_REAL_E2E === '1';
 const REAL_WAIT_MS = Number(process.env.WEBUI_REAL_E2E_TIMEOUT_MS || 25 * 60 * 1000);

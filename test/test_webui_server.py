@@ -427,6 +427,17 @@ class WebUIServerTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(Exception):
                     server._apply_config_update({"project": {"history_limit": 0}})
 
+    def test_write_json_config_creates_data_config_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            config_path = Path(td) / "data" / "config" / "config.json"
+            with patch.object(server, "_CONFIG_FILE", config_path):
+                server._write_json_config({"webui": {"history_limit": 18}})
+
+            self.assertEqual(
+                json.loads(config_path.read_text(encoding="utf-8"))["webui"]["history_limit"],
+                18,
+            )
+
     async def test_auth_status_requires_login_when_password_configured(self):
         request = MagicMock()
         request.cookies = {}

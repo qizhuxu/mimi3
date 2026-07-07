@@ -1,20 +1,23 @@
 """
 config — 两层配置加载。
 
-层序：os.getenv(VAR) > config.json[section][key] > 默认值。
+层序：os.getenv(VAR) > data/config/config.json[section][key] > 默认值。
 .env 文件由 uv run --env-file .env 或外部加载到进程环境；os.getenv 直接读到。
-config.json 存非敏感运营参数（gitignored），运行时手动编辑或 WebUI 写回。
+data/config/config.json 存非敏感运营参数（gitignored），运行时手动编辑或 WebUI 写回。
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
 _PROJECT = Path(__file__).resolve().parent.parent  # src/..
-_CONFIG_PATH = _PROJECT / "config.json"
+CONFIG_DIR = _PROJECT / "data" / "config"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+LEGACY_CONFIG_FILE = _PROJECT / "config.json"
 
 # 默认值
 _DEFAULTS: dict[str, Any] = {
@@ -75,19 +78,28 @@ def _deep_merge(base: dict, overlay: dict) -> None:
             base[k] = v
 
 
+def ensure_config_file() -> Path:
+    """Return the runtime config path and copy legacy root config on first use."""
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_FILE.exists() and LEGACY_CONFIG_FILE.exists():
+        shutil.copyfile(LEGACY_CONFIG_FILE, CONFIG_FILE)
+    return CONFIG_FILE
+
+
 def load() -> dict[str, Any]:
     """
     加载完整配置。返回 dict：
       - 先取默认值
-      - config.json（如果存在）覆盖
+      - data/config/config.json（如果存在）覆盖
       - os.getenv（来自 .env）再覆盖
     """
     cfg: dict[str, Any] = json.loads(json.dumps(_DEFAULTS))  # deep copy
 
-    # 1. config.json
-    if _CONFIG_PATH.exists():
+    # 1. data/config/config.json (legacy root config.json is copied on first use)
+    config_path = ensure_config_file()
+    if config_path.exists():
         try:
-            with open(_CONFIG_PATH, encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 raw = json.load(f)
             if isinstance(raw, dict):
                 _deep_merge(cfg, raw)

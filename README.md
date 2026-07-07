@@ -40,9 +40,10 @@ uv sync
 
 # Configure
 cp .env.example .env
-cp config.example.json config.json
+mkdir -p data/config
+cp config.example.json data/config/config.json
 # Edit .env with your TUNNEL_TOKEN, PROXY_API_KEY
-# Edit config.json with your operational params
+# Edit data/config/config.json with your operational params
 
 # Dry-run scheduler
 uv run --env-file .env python src/run_manager.py plan
@@ -53,6 +54,25 @@ uv run --env-file .env python src/run_manager.py run
 # Deploy a single account
 uv run --env-file .env python src/deploy_one.py data/creds/user_<uid>.json deploy.v1.standard
 ```
+
+## Docker
+
+```bash
+mkdir -p data/creds data/state data/logs data/prompts data/config
+cp .env.example .env
+cp config.example.json data/config/config.json
+
+docker compose up -d --build
+```
+
+The compose service exposes the WebUI on `http://127.0.0.1:8358` and persists
+runtime data through bind mounts:
+
+- `data/creds`
+- `data/state`
+- `data/logs`
+- `data/prompts`
+- `data/config`
 
 ## Credential files
 

@@ -1498,7 +1498,7 @@ async function handleSaveProjectConfig(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ project }),
         });
-        recordAction('config', '保存项目参数', '成功', true, '配置已写入 config.json / .env');
+        recordAction('config', '保存项目参数', '成功', true, '配置已写入 data/config/config.json / .env');
         toast('项目参数已保存', 'success');
         state.configFormDirty = false;
         state.historyLimit = clampHistoryLimit(project.history_limit);

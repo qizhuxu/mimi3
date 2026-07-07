@@ -1,0 +1,55 @@
+name: Docker Build
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "src/**"
+      - "webui/**"
+      - "data/prompts/**"
+      - ".github/workflows/docker-build.yml"
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "codex/**"
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "src/**"
+      - "webui/**"
+      - "data/prompts/**"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: mimi3-webui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

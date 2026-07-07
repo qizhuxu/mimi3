@@ -42,6 +42,8 @@ for p in (str(_PROJECT), str(_PROJECT / "src")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+from src.config import CONFIG_FILE as _RUNTIME_CONFIG_FILE, ensure_config_file
+
 # ── FastAPI app ─────────────────────────────────────────────────
 app = FastAPI(title="mimi3 运维控制台")
 
@@ -285,7 +287,7 @@ async def _run_scheduler_loop(manager) -> None:
             _scheduler_state["mode"] = "idle"
 
 
-_CONFIG_FILE = _PROJECT / "config.json"
+_CONFIG_FILE = _RUNTIME_CONFIG_FILE
 _ENV_FILE = _PROJECT / ".env"
 _DEFAULT_PROMPT_TEMPLATES_FILE = _PROJECT / "data" / "prompts" / "templates.json"
 _HOST_RE = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$")
@@ -302,14 +304,16 @@ _COOKIE_PAIR_RE = re.compile(r"(?:^|[;\r\n]\s*)\s*([A-Za-z0-9_.-]+)\s*=\s*([^;\r
 
 
 def _read_json_config() -> dict[str, Any]:
-    if not _CONFIG_FILE.exists():
+    target = ensure_config_file() if _CONFIG_FILE == _RUNTIME_CONFIG_FILE else _CONFIG_FILE
+    if not target.exists():
         return {}
-    with open(_CONFIG_FILE, encoding="utf-8") as f:
+    with open(target, encoding="utf-8") as f:
         data = json.load(f)
     return data if isinstance(data, dict) else {}
 
 
 def _write_json_config(data: dict[str, Any]) -> None:
+    _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = _CONFIG_FILE.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
