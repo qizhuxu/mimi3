@@ -374,6 +374,58 @@ class WebUIServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(updated["template"]["text"], "新的提示词正文")
             self.assertEqual(saved["templates"][0]["text"], "新的提示词正文")
 
+    async def test_prompt_templates_api_seeds_missing_runtime_file_from_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            template_path = project / "data" / "prompts" / "templates.json"
+            default_path = project / "defaults" / "prompts" / "templates.json"
+            default_path.parent.mkdir(parents=True)
+            default_path.write_text(json.dumps({
+                "templates": [
+                    {
+                        "prompt_id": "deploy.seeded",
+                        "enabled": True,
+                        "text": "seeded connector id",
+                        "preferred_after": [],
+                    }
+                ]
+            }, ensure_ascii=False), encoding="utf-8")
+            config_path = project / "data" / "config" / "config.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({
+                "deploy": {"prompt_id": "deploy.seeded"},
+                "prompt_store": {"templates_path": str(template_path)},
+            }), encoding="utf-8")
+
+            with patch.object(server, "_CONFIG_FILE", config_path), \
+                 patch.object(server, "_DEFAULT_PROMPT_TEMPLATES_FILE", template_path), \
+                 patch.object(server, "_DEFAULT_PROMPT_TEMPLATES_SEED_FILE", default_path):
+                listing = await server.api_prompt_templates()
+
+            self.assertTrue(template_path.exists())
+            self.assertEqual(listing["current_prompt_id"], "deploy.seeded")
+            self.assertEqual(listing["templates"][0]["text"], "seeded connector id")
+
+    async def test_prompt_templates_api_reports_controlled_error_when_default_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            template_path = project / "data" / "prompts" / "templates.json"
+            default_path = project / "defaults" / "prompts" / "templates.json"
+            config_path = project / "data" / "config" / "config.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({
+                "prompt_store": {"templates_path": str(template_path)},
+            }), encoding="utf-8")
+
+            with patch.object(server, "_CONFIG_FILE", config_path), \
+                 patch.object(server, "_DEFAULT_PROMPT_TEMPLATES_FILE", template_path), \
+                 patch.object(server, "_DEFAULT_PROMPT_TEMPLATES_SEED_FILE", default_path):
+                with self.assertRaises(Exception) as ctx:
+                    await server.api_prompt_templates()
+
+            self.assertEqual(ctx.exception.status_code, 500)
+            self.assertIn("提示词模板文件不存在", ctx.exception.detail)
+
     def test_apply_config_update_writes_project_config_and_env(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=False):
             config_path = Path(td) / "config.json"

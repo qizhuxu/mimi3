@@ -12,6 +12,7 @@ RUN uv sync --frozen --no-dev
 COPY src ./src
 COPY webui ./webui
 COPY data/prompts ./data/prompts
+COPY data/prompts/templates.json ./defaults/prompts/templates.json
 
 EXPOSE 8358
 

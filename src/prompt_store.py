@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,25 @@ except ImportError:  # pragma: no cover - CLI imports modules from src/ directly
 # 占位符 {{VAR}}：PromptStore.get/next_after 时用 data/config/config.json（或 env var）替换。
 # 双花括号避免与 prompt 里的 Caddy {env.X} 单花括号引用冲突。
 _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
+_PROJECT = Path(__file__).resolve().parent.parent
+DEFAULT_PROMPT_TEMPLATES_FILE = _PROJECT / "defaults" / "prompts" / "templates.json"
+
+
+def ensure_prompt_templates_file(path: Path, *, default_path: Path | None = None) -> Path:
+    """Ensure an editable prompt template file exists, seeding it once if needed."""
+    target = Path(path)
+    if target.exists():
+        return target
+
+    seed = Path(default_path) if default_path is not None else DEFAULT_PROMPT_TEMPLATES_FILE
+    if not seed.is_file():
+        raise FileNotFoundError(
+            f"prompt templates file not found: {target}; default seed not found: {seed}"
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(seed, target)
+    return target
 
 
 @dataclass(frozen=True)
@@ -52,6 +72,7 @@ class PromptStore:
     def reload(self) -> None:
         """重新加载模板 + env 配置。容器挂载更新后可调，不重启进程。"""
         self._load_env()
+        self.path = ensure_prompt_templates_file(self.path)
         with open(self.path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         items = raw.get("templates", []) if isinstance(raw, dict) else []

@@ -43,6 +43,7 @@ for p in (str(_PROJECT), str(_PROJECT / "src")):
         sys.path.insert(0, p)
 
 from src.config import CONFIG_FILE as _RUNTIME_CONFIG_FILE, ensure_config_file
+from src.prompt_store import ensure_prompt_templates_file
 
 # ── FastAPI app ─────────────────────────────────────────────────
 app = FastAPI(title="mimi3 运维控制台")
@@ -290,6 +291,7 @@ async def _run_scheduler_loop(manager) -> None:
 _CONFIG_FILE = _RUNTIME_CONFIG_FILE
 _ENV_FILE = _PROJECT / ".env"
 _DEFAULT_PROMPT_TEMPLATES_FILE = _PROJECT / "data" / "prompts" / "templates.json"
+_DEFAULT_PROMPT_TEMPLATES_SEED_FILE = _PROJECT / "defaults" / "prompts" / "templates.json"
 _HOST_RE = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$")
 _ENV_EDIT_KEYS = {
     "WEBUI_PASSWORD",
@@ -332,6 +334,10 @@ def _prompt_templates_file() -> Path:
 
 def _read_prompt_templates(path: Path | None = None) -> dict[str, Any]:
     target = path or _prompt_templates_file()
+    try:
+        target = ensure_prompt_templates_file(target, default_path=_DEFAULT_PROMPT_TEMPLATES_SEED_FILE)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"提示词模板文件不存在，且默认模板不可用: {e}")
     with open(target, encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict) or not isinstance(data.get("templates"), list):
@@ -341,6 +347,10 @@ def _read_prompt_templates(path: Path | None = None) -> dict[str, Any]:
 
 def _write_prompt_templates(data: dict[str, Any], path: Path | None = None) -> None:
     target = path or _prompt_templates_file()
+    try:
+        target = ensure_prompt_templates_file(target, default_path=_DEFAULT_PROMPT_TEMPLATES_SEED_FILE)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"提示词模板文件不存在，且默认模板不可用: {e}")
     tmp = target.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

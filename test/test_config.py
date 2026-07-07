@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src import config
-from src.prompt_store import PromptStore
+from src.prompt_store import PromptStore, ensure_prompt_templates_file
 
 
 class ConfigPathTests(unittest.TestCase):
@@ -79,6 +79,101 @@ class ConfigPathTests(unittest.TestCase):
                 store = PromptStore(templates)
 
             self.assertEqual(store.get("deploy.test").text, "host=mimo.test.local")
+
+    def test_prompt_templates_file_is_seeded_from_default_when_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            target = project / "data" / "prompts" / "templates.json"
+            default = project / "defaults" / "prompts" / "templates.json"
+            default.parent.mkdir(parents=True)
+            default.write_text(json.dumps({
+                "templates": [
+                    {
+                        "prompt_id": "deploy.seeded",
+                        "enabled": True,
+                        "text": "seed connector id",
+                        "preferred_after": [],
+                    }
+                ]
+            }), encoding="utf-8")
+
+            resolved = ensure_prompt_templates_file(target, default_path=default)
+
+            self.assertEqual(resolved, target)
+            self.assertTrue(target.exists())
+            self.assertEqual(
+                json.loads(target.read_text(encoding="utf-8"))["templates"][0]["prompt_id"],
+                "deploy.seeded",
+            )
+
+    def test_prompt_templates_file_seeding_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            target = project / "data" / "prompts" / "templates.json"
+            default = project / "defaults" / "prompts" / "templates.json"
+            target.parent.mkdir(parents=True)
+            default.parent.mkdir(parents=True)
+            target.write_text(json.dumps({
+                "templates": [
+                    {"prompt_id": "operator.edited", "enabled": True, "text": "custom connector id"}
+                ]
+            }), encoding="utf-8")
+            default.write_text(json.dumps({
+                "templates": [
+                    {"prompt_id": "image.default", "enabled": True, "text": "default connector id"}
+                ]
+            }), encoding="utf-8")
+
+            ensure_prompt_templates_file(target, default_path=default)
+
+            self.assertEqual(
+                json.loads(target.read_text(encoding="utf-8"))["templates"][0]["prompt_id"],
+                "operator.edited",
+            )
+
+    def test_prompt_templates_file_seeding_fails_when_default_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            target = project / "data" / "prompts" / "templates.json"
+            default = project / "defaults" / "prompts" / "templates.json"
+
+            with self.assertRaises(FileNotFoundError) as ctx:
+                ensure_prompt_templates_file(target, default_path=default)
+
+            self.assertIn(str(target), str(ctx.exception))
+            self.assertIn(str(default), str(ctx.exception))
+
+    def test_prompt_store_reload_seeds_missing_default_runtime_templates(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            project = Path(td)
+            target = project / "data" / "prompts" / "templates.json"
+            default = project / "defaults" / "prompts" / "templates.json"
+            default.parent.mkdir(parents=True)
+            default.write_text(json.dumps({
+                "templates": [
+                    {
+                        "prompt_id": "deploy.seeded",
+                        "enabled": True,
+                        "text": "host={{PUBLIC_HOSTNAME}} connector id",
+                        "preferred_after": [],
+                    }
+                ]
+            }), encoding="utf-8")
+            data_config = project / "data" / "config" / "config.json"
+            data_config.parent.mkdir(parents=True)
+            data_config.write_text(json.dumps({
+                "prompt_store": {
+                    "substitution_values": {
+                        "PUBLIC_HOSTNAME": "seeded.example.com",
+                    }
+                }
+            }), encoding="utf-8")
+
+            with self._patch_paths(project), patch("src.prompt_store.DEFAULT_PROMPT_TEMPLATES_FILE", default):
+                store = PromptStore(target)
+
+            self.assertTrue(target.exists())
+            self.assertEqual(store.get("deploy.seeded").text, "host=seeded.example.com connector id")
 
     def test_prompt_store_derives_values_from_tunnel_config(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
