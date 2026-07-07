@@ -102,8 +102,7 @@ class PromptStore:
         self._env_values = {}
         # 1. config.load() 合并默认值 + data/config/config.json + os.getenv
         try:
-            from .config import load as _load_cfg
-            merged = _load_cfg()
+            merged = load_config()
             tunnel = merged.get("tunnel", {}) if isinstance(merged.get("tunnel"), dict) else {}
             derived = {
                 "PUBLIC_HOSTNAME": tunnel.get("public_hostname", ""),
