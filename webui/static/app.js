@@ -1030,6 +1030,7 @@ function renderConfigPage() {
                     <label><span>号池最大阈值</span><input name="max_accounts" type="number" min="1" max="1000" value="${esc(c.pool?.max_accounts ?? '')}"><em>最大账号数，删除旧号时用。</em></label>
                     <label><span>部署模板</span><select name="prompt_id">${renderPromptIdOptions(c.deploy?.prompt_id || promptId)}</select><em>选择发送给 Claw 的提示词模板。</em></label>
                     <label><span>调度周期（秒）</span><input name="tick_seconds" type="number" min="5" max="3600" value="${esc(c.scheduler?.tick_seconds ?? 30)}"><em>后台 tick 间隔。</em></label>
+                    <label><span>部署间隔（分钟）</span><input name="stagger_minutes" type="number" min="60" max="180" value="${esc(Math.round((c.scheduler?.stagger_seconds ?? 7200) / 60))}"><em>每个 Claw 实例创建的固定间隔，默认 120 分钟。</em></label>
                     <label><span>冷却窗口（秒）</span><input name="daily_cooldown_seconds" type="number" min="300" max="2592000" value="${esc(c.scheduler?.daily_cooldown_seconds ?? 86400)}"><em>单账号部署后冷却时长，默认 24h。</em></label>
                     <label><span>部署发送超时（秒）</span><input name="send_timeout" type="number" min="10" max="3600" value="${esc(c.deploy?.send_timeout ?? 900)}"><em>单次部署等待上限。</em></label>
                     <label><span>部署并发数</span><input name="max_concurrent_deploys" type="number" min="1" max="10" value="${esc(c.scheduler?.max_concurrent_deploys ?? 1)}"><em>同时部署的账号数上限。</em></label>
@@ -1507,6 +1508,7 @@ async function handleSaveProjectConfig(e) {
         tick_seconds: fd.get('tick_seconds'),
         daily_cooldown_seconds: fd.get('daily_cooldown_seconds'),
         send_timeout: fd.get('send_timeout'),
+        stagger_minutes: fd.get('stagger_minutes'),
         max_concurrent_deploys: fd.get('max_concurrent_deploys'),
         health_interval: fd.get('health_interval'),
         prompt_id: fd.get('prompt_id'),

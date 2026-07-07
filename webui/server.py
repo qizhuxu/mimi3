@@ -597,6 +597,9 @@ def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
     if "max_concurrent_deploys" in form:
         cfg.setdefault("scheduler", {})["max_concurrent_deploys"] = _as_int(
             form["max_concurrent_deploys"], name="部署并发数", min_value=1, max_value=10)
+    if "stagger_minutes" in form:
+        mins = _as_int(form["stagger_minutes"], name="部署间隔（分钟）", min_value=60, max_value=180)
+        cfg.setdefault("scheduler", {})["stagger_seconds"] = mins * 60
     if "daily_cooldown_seconds" in form:
         cfg.setdefault("scheduler", {})["daily_cooldown_seconds"] = _as_int(
             form["daily_cooldown_seconds"], name="冷却窗口（秒）", min_value=300, max_value=2592000)

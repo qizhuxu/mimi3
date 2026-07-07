@@ -50,6 +50,7 @@ def _config() -> dict:
         "scheduler.handoff_lead_seconds": c["scheduler"]["handoff_lead_seconds"],
         "scheduler.daily_cooldown_seconds": c["scheduler"]["daily_cooldown_seconds"],
         "scheduler.max_concurrent_deploys": c["scheduler"]["max_concurrent_deploys"],
+        "scheduler.stagger_seconds": c["scheduler"]["stagger_seconds"],
         "health.interval_seconds": c["health"]["interval_seconds"],
         "deploy.send_timeout": c["deploy"]["send_timeout"],
         "deploy.prompt_id": c["deploy"]["prompt_id"],

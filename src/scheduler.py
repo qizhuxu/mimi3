@@ -50,9 +50,9 @@ class Scheduler:
         self._rr_index = 0
 
     def stagger_interval(self, n_active: int) -> float:
-        n = max(n_active, 1)
-        s = 24 * 3600 / n
-        return max(MIN_STAGGER, min(MAX_STAGGER, s))
+        """返回固定错峰间隔（秒），由 config scheduler.stagger_seconds 控制，默认 120 分钟。"""
+        return self.config.get("scheduler.stagger_seconds",
+                               self.config.get("scheduler_stagger_seconds", 7200))
 
     def _eligible_idle(self, pool: AccountPool, now: float) -> list[str]:
         """可部署的 idle 账号（24h 冷却已过 + 无短退避）。"""

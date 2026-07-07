@@ -27,6 +27,7 @@ _DEFAULTS: dict[str, Any] = {
         "handoff_lead_seconds": 1800,
         "daily_cooldown_seconds": 86400,
         "max_concurrent_deploys": 1,
+        "stagger_seconds": 7200,
     },
     "health": {"interval_seconds": 300},
     "deploy": {"send_timeout": 900, "prompt_id": "deploy.v1.standard"},
@@ -56,6 +57,7 @@ _ENV_KEYS = {
     "PROXY_API_KEY": "proxy_api_key",
     "PUBLIC_HOSTNAME": "tunnel.public_hostname",
     "LOCAL_PORT": "tunnel.local_port",
+    "MIMI3N_STAGGER_SECONDS": "scheduler.stagger_seconds",
 }
 
 
