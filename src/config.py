@@ -30,7 +30,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "health": {"interval_seconds": 300},
     "deploy": {"send_timeout": 900, "prompt_id": "deploy.v1.standard"},
-    "webui": {"history_limit": 10},
+    "webui": {"history_limit": 10, "host": "0.0.0.0", "port": 8358},
     "tunnel": {
         "public_hostname": "mimo.7786.pp.ua",
         "local_port": 8359,
@@ -39,12 +39,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "prompt_store": {
         "templates_path": "data/prompts/templates.json",
-        "substitution_values": {
-            "PUBLIC_HOSTNAME": "mimo.7786.pp.ua",
-            "LOCAL_PORT": "8359",
-            "UPSTREAM": "api-sgp-oc.xiaomimimo.com:443",
-            "API_KEY_ENV": "MIMO_API_KEY",
-        },
+        "substitution_values": {},
     },
 }
 
@@ -52,6 +47,9 @@ _DEFAULTS: dict[str, Any] = {
 _ENV_KEYS = {
     "MIMI3N_MIN_ACCOUNTS": "pool.min_accounts",
     "MIMI3N_TICK_SECONDS": "scheduler.tick_seconds",
+    "MIMI3_WEBUI_PORT": "webui.port",
+    "WEBUI_HOST": "webui.host",
+    "WEBUI_PORT": "webui.port",
     "CF_API_TOKEN": "cf_api_token",
     "CF_ACCOUNT_ID": "cf_account_id",
     "TUNNEL_TOKEN": "tunnel_token",

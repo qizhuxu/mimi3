@@ -1,14 +1,25 @@
 services:
   mimi3-webui:
-    build: .
+    image: ghcr.io/qizhuxu/mimi3:latest
     container_name: mimi3-webui
+    init: true
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       PYTHONUNBUFFERED: "1"
+      WEBUI_HOST: ${WEBUI_HOST:-0.0.0.0}
+      WEBUI_PORT: ${WEBUI_PORT:-8358}
+      WEBUI_PASSWORD: ${WEBUI_PASSWORD:-}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      TUNNEL_ID: ${TUNNEL_ID:-}
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      PROXY_API_KEY: ${PROXY_API_KEY:-}
+      MIMO_API_KEY: ${MIMO_API_KEY:-}
+      MIMI3N_MIN_ACCOUNTS: ${MIMI3N_MIN_ACCOUNTS:-}
+      MIMI3N_TICK_SECONDS: ${MIMI3N_TICK_SECONDS:-}
     ports:
-      - "8358:8358"
+      - "${WEBUI_PORT:-8358}:${WEBUI_PORT:-8358}"
     volumes:
       - ./data/creds:/app/data/creds
       - ./data/state:/app/data/state

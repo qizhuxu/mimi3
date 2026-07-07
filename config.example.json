@@ -27,6 +27,13 @@
     "comment_timeout": "放过 prompt 后等 claw 回复的秒数（claw 跑 deploy-user.sh 较慢）"
   },
 
+  "webui": {
+    "host": "0.0.0.0",
+    "port": 8358,
+    "history_limit": 10,
+    "comment_port": "容器内 WebUI 监听端口；Docker Compose 发布端口优先用 WEBUI_PORT 环境变量控制"
+  },
+
   "tunnel": {
     "public_hostname": "mimo.7786.pp.ua",
     "local_port": 8359,
@@ -40,11 +47,7 @@
   "prompt_store": {
     "templates_path": "data/prompts/templates.json",
     "substitution_values": {
-      "PUBLIC_HOSTNAME": "mimo.7786.pp.ua",
-      "LOCAL_PORT": "8359",
-      "UPSTREAM": "api-sgp-oc.xiaomimimo.com:443",
-      "API_KEY_ENV": "MIMO_API_KEY",
-      "comment": "TUNNEL_TOKEN 和 PROXY_API_KEY 走 .env（敏感），不在此处"
+      "comment": "可选覆盖项。PUBLIC_HOSTNAME/LOCAL_PORT/UPSTREAM/API_KEY_ENV 默认从 tunnel 配置派生；TUNNEL_TOKEN 和 PROXY_API_KEY 走 .env（敏感），不在此处"
     }
   }
 }

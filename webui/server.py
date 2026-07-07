@@ -560,8 +560,7 @@ def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
     deploy = cfg.setdefault("deploy", {})
     tunnel = cfg.setdefault("tunnel", {})
     webui = cfg.setdefault("webui", {})
-    prompt_store = cfg.setdefault("prompt_store", {})
-    substitutions = prompt_store.setdefault("substitution_values", {})
+    cfg.setdefault("prompt_store", {})
 
     if "min_accounts" in form:
         pool["min_accounts"] = _as_int(form["min_accounts"], name="号池最低阈值", min_value=1, max_value=500)
@@ -573,12 +572,10 @@ def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
     if "public_hostname" in form:
         host = _validate_hostname(form["public_hostname"])
         tunnel["public_hostname"] = host
-        substitutions["PUBLIC_HOSTNAME"] = host
         env_updates["PUBLIC_HOSTNAME"] = host
     if "local_port" in form:
         port = _as_int(form["local_port"], name="mimo-claw 监听端口", min_value=1, max_value=65535)
         tunnel["local_port"] = port
-        substitutions["LOCAL_PORT"] = str(port)
     if "history_limit" in form:
         webui["history_limit"] = _as_int(form["history_limit"], name="部署历史显示条数", min_value=1, max_value=200)
     if "prompt_id" in form:

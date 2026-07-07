@@ -59,13 +59,19 @@ uv run --env-file .env python src/deploy_one.py data/creds/user_<uid>.json deplo
 
 ```bash
 mkdir -p data/creds data/state data/logs data/prompts data/config
-cp .env.example .env
 cp config.example.json data/config/config.json
 
-docker compose up -d --build
+# Optional: create .env only when you want Compose to inject secrets/env values.
+cp .env.example .env
+
+docker compose up -d
 ```
 
-The compose service exposes the WebUI on `http://127.0.0.1:8358` and persists
+The default Compose file pulls `ghcr.io/qizhuxu/mimi3:latest`. It does not
+require `.env`; when `.env` exists, Docker Compose automatically uses it for
+`${...}` interpolation.
+
+The compose service exposes the WebUI on port `8358` by default and persists
 runtime data through bind mounts:
 
 - `data/creds`
@@ -73,6 +79,28 @@ runtime data through bind mounts:
 - `data/logs`
 - `data/prompts`
 - `data/config`
+
+Change the WebUI port with an environment variable or a Compose `.env` file:
+
+```bash
+WEBUI_PORT=8360 docker compose up -d
+```
+
+or:
+
+```dotenv
+WEBUI_PORT=8360
+```
+
+`data/config/config.json` also supports `webui.host` and `webui.port` for the
+container process. In Docker Compose bridge networking, the published host port
+still needs to match through `WEBUI_PORT`.
+
+Build a local image only when developing the image itself:
+
+```bash
+docker build -t ghcr.io/qizhuxu/mimi3:latest .
+```
 
 ## Credential files
 

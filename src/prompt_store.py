@@ -75,7 +75,7 @@ class PromptStore:
         self._logger.info("prompt_store 已加载 %d 个模板: %s", len(self._templates), list(self._templates))
 
     def _load_env(self) -> None:
-        """加载 env 替换值：data/config/config.json["prompt_store"]["substitution_values"]
+        """加载 env 替换值：tunnel 派生值 + prompt_store.substitution_values。
         或旧 data/deploy_env.json（迁移兼容）。os.getenv 优先于文件值。"""
         self._env_values = {}
         # 1. data/config/config.json（旧根 config.json 会在首次读取时迁移）
@@ -84,6 +84,16 @@ class PromptStore:
             try:
                 with open(cfg, encoding="utf-8") as f:
                     raw = json.load(f)
+                tunnel = raw.get("tunnel", {}) if isinstance(raw.get("tunnel"), dict) else {}
+                derived = {
+                    "PUBLIC_HOSTNAME": tunnel.get("public_hostname", ""),
+                    "LOCAL_PORT": tunnel.get("local_port", ""),
+                    "UPSTREAM": tunnel.get("upstream", ""),
+                    "API_KEY_ENV": tunnel.get("api_key_env", ""),
+                }
+                for k, v in derived.items():
+                    if v is not None and str(v):
+                        self._env_values[k] = str(v)
                 subs = raw.get("prompt_store", {}).get("substitution_values", {})
                 if isinstance(subs, dict):
                     for k, v in subs.items():

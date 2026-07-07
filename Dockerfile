@@ -15,4 +15,4 @@ COPY data/prompts ./data/prompts
 
 EXPOSE 8358
 
-CMD ["uv", "run", "--frozen", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8358"]
+CMD ["python", "-m", "src.webui_runtime"]
