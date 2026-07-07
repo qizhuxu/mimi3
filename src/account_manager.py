@@ -172,15 +172,30 @@ class AccountManager:
         if not plan.due_deploys:
             return  # 无事可做
 
-        # 3. 执行 due 部署（并发上限）
-        async def _do(task: DeployTask) -> None:
-            async with self._semaphore:
-                if not task.uid:
-                    self.logger.error(f"handoff_from={task.handoff_from} 无 reserve 账号可接班，断档")
-                    return
-                await self._execute_deploy(task.uid, task.reason)
-
-        await asyncio.gather(*[_do(t) for t in plan.due_deploys])
+        # 3. 执行 due 部署（错峰：按 stagger 间隔依次部署，不集中发）
+        due = plan.due_deploys
+        if not due:
+            return
+        stagger = plan.stagger_interval
+        # 把 stagger 窗口均匀分给每个 due，至少 0 秒
+        gap = max(0, stagger / len(due)) if stagger > 0 else 0
+        for i, task in enumerate(due):
+            if self._cancelled:
+                self.logger.info("主循环取消，跳过剩余 due 部署")
+                break
+            if task.uid:
+                async with self._semaphore:
+                    if not task.uid:
+                        self.logger.error(f"handoff_from={task.handoff_from} 无 reserve 账号可接班，断档")
+                    else:
+                        await self._execute_deploy(task.uid, task.reason)
+            # 最后一个不用等
+            if i < len(due) - 1 and gap > 0:
+                self.logger.info(f"错峰等待 {gap:.0f}s，剩余 {len(due) - i - 1} 个待部署")
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=gap)
+                except asyncio.TimeoutError:
+                    pass
 
         # 4. cleanup token 失效
         self.cleanup_expired()
