@@ -36,3 +36,6 @@ test-results/
 AGENTS.md
 CLAUDE.md
 skills-lock.json
+
+# 测试源文件（本地运行，不上传）
+test/
