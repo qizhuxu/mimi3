@@ -31,6 +31,8 @@ test-results/
 .claude/
 .agents/
 .codex/
+.gitnexus/
 .trellis/
+AGENTS.md
 CLAUDE.md
 skills-lock.json
