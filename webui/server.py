@@ -562,15 +562,24 @@ def _validate_hostname(value: Any) -> str:
 
 
 def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
-    cfg = _read_json_config()
+    from src.config import _DEFAULTS
+
+    # 以默认值为基，然后叠 user config 已存值，确保所有 section/key 都存在
+    cfg = json.loads(json.dumps(_DEFAULTS))  # deep copy defaults
+    existing = _read_json_config()
+    if isinstance(existing, dict):
+        for k, v in existing.items():
+            if k in cfg and isinstance(cfg[k], dict) and isinstance(v, dict):
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
     env_updates: dict[str, str | None] = {}
 
     form = payload.get("project") if isinstance(payload.get("project"), dict) else payload
-    pool = cfg.setdefault("pool", {})
-    deploy = cfg.setdefault("deploy", {})
-    tunnel = cfg.setdefault("tunnel", {})
-    webui = cfg.setdefault("webui", {})
-    cfg.setdefault("prompt_store", {})
+    pool = cfg["pool"]
+    deploy = cfg["deploy"]
+    tunnel = cfg["tunnel"]
+    webui = cfg["webui"]
 
     if "min_accounts" in form:
         pool["min_accounts"] = _as_int(form["min_accounts"], name="号池最低阈值", min_value=1, max_value=500)
@@ -579,6 +588,25 @@ def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
     if int(pool.get("max_accounts", 50)) < int(pool.get("min_accounts", 8)):
         raise HTTPException(status_code=400, detail="号池最大阈值不能小于最低阈值")
 
+    if "tick_seconds" in form:
+        sec = _as_int(form["tick_seconds"], name="调度周期（秒）", min_value=5, max_value=3600)
+        cfg.setdefault("scheduler", {})["tick_seconds"] = sec
+    if "handoff_lead_seconds" in form:
+        sec = _as_int(form["handoff_lead_seconds"], name="接力提前期（秒）", min_value=60, max_value=86400)
+        cfg.setdefault("scheduler", {})["handoff_lead_seconds"] = sec
+    if "max_concurrent_deploys" in form:
+        cfg.setdefault("scheduler", {})["max_concurrent_deploys"] = _as_int(
+            form["max_concurrent_deploys"], name="部署并发数", min_value=1, max_value=10)
+    if "daily_cooldown_seconds" in form:
+        cfg.setdefault("scheduler", {})["daily_cooldown_seconds"] = _as_int(
+            form["daily_cooldown_seconds"], name="冷却窗口（秒）", min_value=300, max_value=2592000)
+
+    if "send_timeout" in form:
+        deploy["send_timeout"] = _as_int(form["send_timeout"], name="部署发送超时（秒）", min_value=10, max_value=3600)
+    if "health_interval" in form:
+        sec = _as_int(form["health_interval"], name="健康检查间隔（秒）", min_value=10, max_value=86400)
+        cfg.setdefault("health", {})["interval_seconds"] = sec
+
     if "public_hostname" in form:
         host = _validate_hostname(form["public_hostname"])
         tunnel["public_hostname"] = host
@@ -586,6 +614,16 @@ def _apply_config_update(payload: dict[str, Any]) -> dict[str, Any]:
     if "local_port" in form:
         port = _as_int(form["local_port"], name="mimo-claw 监听端口", min_value=1, max_value=65535)
         tunnel["local_port"] = port
+    if "upstream" in form:
+        raw_upstream = str(form.get("upstream") or "").strip()
+        if not raw_upstream or "://" in raw_upstream:
+            raise HTTPException(status_code=400, detail="mimo-claw 上游地址格式不正确")
+        tunnel["upstream"] = raw_upstream
+    if "api_key_env" in form:
+        raw_key = str(form.get("api_key_env") or "").strip()
+        if not raw_key or not raw_key.isidentifier():
+            raise HTTPException(status_code=400, detail="mimo-claw API 密钥环境变量名格式不正确")
+        tunnel["api_key_env"] = raw_key
     if "history_limit" in form:
         webui["history_limit"] = _as_int(form["history_limit"], name="部署历史显示条数", min_value=1, max_value=200)
     if "prompt_id" in form:

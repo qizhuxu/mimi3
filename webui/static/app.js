@@ -979,6 +979,14 @@ async function handleHistoryLimitSave() {
     }
 }
 
+function renderPromptIdOptions(currentId) {
+    const templates = state.promptTemplates?.templates || [];
+    if (!templates.length) return '<option value="">加载中...</option>';
+    return templates.filter(t => t.enabled !== false).map(t =>
+        `<option value="${esc(t.prompt_id)}"${t.prompt_id === currentId ? ' selected' : ''}>${esc(t.prompt_id)}${t.text_length ? ` (${t.text_length} 字符)` : ''}</option>`
+    ).join('');
+}
+
 function renderConfigPage() {
     if (!D.configPageContent) return;
     const c = state.config;
@@ -1013,14 +1021,25 @@ function renderConfigPage() {
                     <label><span>隧道令牌</span><input name="TUNNEL_TOKEN" type="password" autocomplete="off" placeholder="${c.tunnel_token_configured ? '已配置，留空不变' : '未配置'}"></label>
                     <label><span>隧道域名</span><input name="public_hostname" type="text" value="${esc(c.tunnel?.public_hostname || '')}" placeholder="mimo.example.com"></label>
                     <label><span>mimo-claw 监听端口</span><input name="local_port" type="number" min="1" max="65535" value="${esc(c.tunnel?.local_port ?? '')}"></label>
+                    <label><span>mimo-claw 上游地址</span><input name="upstream" type="text" value="${esc(c.tunnel?.upstream ?? '')}" placeholder="api-sgp-oc.xiaomimimo.com:443"><em>prompt 模板 {{UPSTREAM}} 替换值。</em></label>
+                    <label><span>mimo-claw API 密钥环境变量名</span><input name="api_key_env" type="text" value="${esc(c.tunnel?.api_key_env ?? '')}" placeholder="MIMO_API_KEY"><em>prompt 模板 {{API_KEY_ENV}} 替换值。</em></label>
                     <label><span>CF 令牌（可选）</span><input name="CF_API_TOKEN" type="password" autocomplete="off" placeholder="${c.cf_api_token_configured ? '已配置，留空不变' : '未配置'}"></label>
                     <label><span>CF 账户 ID（可选）</span><input name="CF_ACCOUNT_ID" type="password" autocomplete="off" placeholder="${c.cf_account_id_configured ? '已配置，留空不变' : '未配置'}"></label>
                     <label><span>代理密钥</span><input name="PROXY_API_KEY" type="password" autocomplete="off" placeholder="${c.proxy_api_key_configured ? '已配置，留空不变' : '未配置'}"></label>
                     <label><span>号池最低阈值</span><input name="min_accounts" type="number" min="1" max="500" value="${esc(c.pool?.min_accounts ?? '')}"><em>建议大于 8，降低覆盖断档风险。</em></label>
+                    <label><span>号池最大阈值</span><input name="max_accounts" type="number" min="1" max="1000" value="${esc(c.pool?.max_accounts ?? '')}"><em>最大账号数，删除旧号时用。</em></label>
+                    <label><span>部署模板</span><select name="prompt_id">${renderPromptIdOptions(c.deploy?.prompt_id || promptId)}</select><em>选择发送给 Claw 的提示词模板。</em></label>
+                    <label><span>调度周期（秒）</span><input name="tick_seconds" type="number" min="5" max="3600" value="${esc(c.scheduler?.tick_seconds ?? 30)}"><em>后台 tick 间隔。</em></label>
+                    <label><span>冷却窗口（秒）</span><input name="daily_cooldown_seconds" type="number" min="300" max="2592000" value="${esc(c.scheduler?.daily_cooldown_seconds ?? 86400)}"><em>单账号部署后冷却时长，默认 24h。</em></label>
+                    <label><span>部署发送超时（秒）</span><input name="send_timeout" type="number" min="10" max="3600" value="${esc(c.deploy?.send_timeout ?? 900)}"><em>单次部署等待上限。</em></label>
+                    <label><span>部署并发数</span><input name="max_concurrent_deploys" type="number" min="1" max="10" value="${esc(c.scheduler?.max_concurrent_deploys ?? 1)}"><em>同时部署的账号数上限。</em></label>
+                    <label><span>健康检查间隔（秒）</span><input name="health_interval" type="number" min="10" max="86400" value="${esc(c.health?.interval_seconds ?? 300)}"><em>活跃账号探活间隔。</em></label>
                     <label><span>部署历史显示条数</span><input name="history_limit" type="number" min="1" max="200" value="${esc(c.webui?.history_limit ?? 10)}"><em>默认 10 条，可临时通过历史接口 limit 参数覆盖。</em></label>
                     <div class="project-config-options">
                         <label class="inline-check"><input name="clear_cf_api_token" type="checkbox"> 清空 CF 令牌</label>
                         <label class="inline-check"><input name="clear_cf_account_id" type="checkbox"> 清空 CF 账户 ID</label>
+                        <label class="inline-check"><input name="clear_tunnel_token" type="checkbox"> 清空隧道令牌</label>
+                        <label class="inline-check"><input name="clear_proxy_api_key" type="checkbox"> 清空代理密钥</label>
                     </div>
                     <div class="project-config-actions">
                         <span>敏感值只写入 .env，不在前端回显。</span>
@@ -1480,8 +1499,17 @@ async function handleSaveProjectConfig(e) {
     const fd = new FormData(form);
     const project = {
         min_accounts: fd.get('min_accounts'),
+        max_accounts: fd.get('max_accounts'),
         public_hostname: fd.get('public_hostname'),
         local_port: fd.get('local_port'),
+        upstream: fd.get('upstream'),
+        api_key_env: fd.get('api_key_env'),
+        tick_seconds: fd.get('tick_seconds'),
+        daily_cooldown_seconds: fd.get('daily_cooldown_seconds'),
+        send_timeout: fd.get('send_timeout'),
+        max_concurrent_deploys: fd.get('max_concurrent_deploys'),
+        health_interval: fd.get('health_interval'),
+        prompt_id: fd.get('prompt_id'),
         history_limit: fd.get('history_limit'),
     };
     for (const key of ['WEBUI_PASSWORD', 'TUNNEL_TOKEN', 'CF_API_TOKEN', 'CF_ACCOUNT_ID', 'PROXY_API_KEY']) {
@@ -1490,6 +1518,8 @@ async function handleSaveProjectConfig(e) {
     }
     if (fd.get('clear_cf_api_token')) project.clear_cf_api_token = true;
     if (fd.get('clear_cf_account_id')) project.clear_cf_account_id = true;
+    if (fd.get('clear_tunnel_token')) project.clear_tunnel_token = true;
+    if (fd.get('clear_proxy_api_key')) project.clear_proxy_api_key = true;
 
     setConfigPending(true);
     try {

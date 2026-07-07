@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src import config
 from webui import server
 from src.account_store import AccountPool, AccountState, S_ACTIVE, S_RELOGIN_NEEDED
 from src.claw_deployer import DeployResult
@@ -445,25 +446,37 @@ class WebUIServerTests(unittest.IsolatedAsyncioTestCase):
                         "prompt_id": "deploy.v2.fast",
                         "public_hostname": "mimo.example.com",
                         "local_port": 8361,
+                        "upstream": "api.example.com:443",
+                        "api_key_env": "MIMO_API_KEY",
                         "history_limit": 25,
                         "WEBUI_PASSWORD": "secret123",
                         "TUNNEL_TOKEN": "new-token",
                         "CF_API_TOKEN": "cf-token",
+                        "PROXY_API_KEY": "proxy-key",
                     }
                 })
 
             saved = json.loads(config_path.read_text(encoding="utf-8"))
             env_text = env_path.read_text(encoding="utf-8")
             self.assertEqual(saved["pool"]["min_accounts"], 12)
+            self.assertEqual(saved["pool"]["max_accounts"], 50)
+            self.assertEqual(saved["scheduler"]["tick_seconds"], 30)
+            self.assertEqual(saved["scheduler"]["daily_cooldown_seconds"], 86400)
+            self.assertEqual(saved["health"]["interval_seconds"], 300)
+            self.assertEqual(saved["deploy"]["send_timeout"], 900)
             self.assertEqual(saved["deploy"]["prompt_id"], "deploy.v2.fast")
             self.assertEqual(saved["tunnel"]["public_hostname"], "mimo.example.com")
             self.assertEqual(saved["tunnel"]["local_port"], 8361)
+            self.assertEqual(saved["tunnel"]["upstream"], "api.example.com:443")
+            self.assertEqual(saved["tunnel"]["api_key_env"], "MIMO_API_KEY")
             self.assertEqual(saved["webui"]["history_limit"], 25)
+            self.assertEqual(saved["prompt_store"]["templates_path"], "data/prompts/templates.json")
             self.assertNotIn("PUBLIC_HOSTNAME", saved["prompt_store"]["substitution_values"])
             self.assertNotIn("LOCAL_PORT", saved["prompt_store"]["substitution_values"])
             self.assertIn("WEBUI_PASSWORD=secret123", env_text)
             self.assertIn("TUNNEL_TOKEN=new-token", env_text)
             self.assertIn("CF_API_TOKEN=cf-token", env_text)
+            self.assertIn("PROXY_API_KEY=proxy-key", env_text)
             self.assertIn("WEBUI_PASSWORD", result["updated_env"])
 
     def test_apply_config_update_rejects_invalid_values(self):
@@ -478,6 +491,23 @@ class WebUIServerTests(unittest.IsolatedAsyncioTestCase):
                     server._apply_config_update({"project": {"public_hostname": "not a host"}})
                 with self.assertRaises(Exception):
                     server._apply_config_update({"project": {"history_limit": 0}})
+                with self.assertRaises(Exception):
+                    server._apply_config_update({"project": {"upstream": "https://api.example.com"}})
+                with self.assertRaises(Exception):
+                    server._apply_config_update({"project": {"api_key_env": "bad-env-name"}})
+
+    def test_sync_runtime_env_from_env_file_populates_process_env(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            env_path = Path(td) / ".env"
+            env_path.write_text("TUNNEL_TOKEN=token-from-file\nPROXY_API_KEY=proxy-from-file\n", encoding="utf-8")
+
+            with patch.object(server, "_ENV_FILE", env_path), patch("src.config.reload") as reload_config:
+                changed = server._sync_runtime_env_from_sources()
+
+            self.assertTrue(changed)
+            self.assertEqual(os.environ["TUNNEL_TOKEN"], "token-from-file")
+            self.assertEqual(os.environ["PROXY_API_KEY"], "proxy-from-file")
+            reload_config.assert_called_once()
 
     def test_write_json_config_creates_data_config_directory(self):
         with tempfile.TemporaryDirectory() as td:
@@ -546,6 +576,52 @@ class WebUIServerTests(unittest.IsolatedAsyncioTestCase):
             await server.api_scheduler_start(request)
 
         self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_scheduler_start_rejects_unresolved_prompt_placeholders(self):
+        request = MagicMock()
+        request.json = AsyncMock(return_value={"confirm": True})
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            project = Path(td)
+            template_path = project / "data" / "prompts" / "templates.json"
+            template_path.parent.mkdir(parents=True)
+            template_path.write_text(json.dumps({
+                "templates": [
+                    {
+                        "prompt_id": "deploy.test",
+                        "enabled": True,
+                        "text": (
+                            "host={{PUBLIC_HOSTNAME}} token={{TUNNEL_TOKEN}} "
+                            "key={{PROXY_API_KEY}} upstream={{UPSTREAM}} connector id"
+                        ),
+                        "preferred_after": [],
+                    }
+                ]
+            }), encoding="utf-8")
+            config_path = project / "data" / "config" / "config.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({
+                "deploy": {"prompt_id": "deploy.test"},
+                "tunnel": {
+                    "public_hostname": "mimo.example.com",
+                    "local_port": 8359,
+                    "upstream": "api.example.com:443",
+                    "api_key_env": "MIMO_API_KEY",
+                },
+                "prompt_store": {"templates_path": str(template_path), "substitution_values": {}},
+            }), encoding="utf-8")
+            env_path = project / ".env"
+            env_path.write_text("", encoding="utf-8")
+
+            with patch.object(server, "_CONFIG_FILE", config_path), \
+                 patch.object(server, "_ENV_FILE", env_path), \
+                 patch.multiple(config, CONFIG_FILE=config_path, LEGACY_CONFIG_FILE=project / "config.json"):
+                config.reload()
+                with self.assertRaises(Exception) as ctx:
+                    await server.api_scheduler_start(request)
+
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("TUNNEL_TOKEN", str(ctx.exception.detail))
+            self.assertIn("PROXY_API_KEY", str(ctx.exception.detail))
 
     async def test_scheduler_start_rejects_duplicate_loop(self):
         request = MagicMock()

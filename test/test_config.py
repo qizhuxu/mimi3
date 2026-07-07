@@ -210,6 +210,39 @@ class ConfigPathTests(unittest.TestCase):
                 "derived.example.com 8365 upstream.example.com:443 MIMO_API_KEY",
             )
 
+    def test_prompt_store_uses_config_defaults_for_partial_tunnel_config(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            project = Path(td)
+            templates = project / "data" / "prompts" / "templates.json"
+            templates.parent.mkdir(parents=True)
+            templates.write_text(json.dumps({
+                "templates": [
+                    {
+                        "prompt_id": "deploy.test",
+                        "enabled": True,
+                        "text": "{{PUBLIC_HOSTNAME}} {{LOCAL_PORT}} {{UPSTREAM}} {{API_KEY_ENV}}",
+                        "preferred_after": [],
+                    }
+                ]
+            }), encoding="utf-8")
+            data_config = project / "data" / "config" / "config.json"
+            data_config.parent.mkdir(parents=True)
+            data_config.write_text(json.dumps({
+                "tunnel": {
+                    "public_hostname": "partial.example.com",
+                    "local_port": 8365,
+                },
+                "prompt_store": {},
+            }), encoding="utf-8")
+
+            with self._patch_paths(project):
+                store = PromptStore(templates)
+
+            self.assertEqual(
+                store.get("deploy.test").text,
+                "partial.example.com 8365 api-sgp-oc.xiaomimimo.com:443 MIMO_API_KEY",
+            )
+
     def test_webui_port_env_overrides_data_config(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"WEBUI_PORT": "9460"}, clear=True):
             project = Path(td)

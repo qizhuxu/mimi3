@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from .config import ensure_config_file
+    from .config import ensure_config_file, load as load_config
 except ImportError:  # pragma: no cover - CLI imports modules from src/ directly
-    from config import ensure_config_file
+    from config import ensure_config_file, load as load_config
 
 
 # 占位符 {{VAR}}：PromptStore.get/next_after 时用 data/config/config.json（或 env var）替换。
@@ -97,33 +97,30 @@ class PromptStore:
 
     def _load_env(self) -> None:
         """加载 env 替换值：tunnel 派生值 + prompt_store.substitution_values。
-        或旧 data/deploy_env.json（迁移兼容）。os.getenv 优先于文件值。"""
+        使用 config.load() 获取合并后的配置（含默认值），避免遗漏缺省字段。
+        os.getenv 优先于文件值。"""
         self._env_values = {}
-        # 1. data/config/config.json（旧根 config.json 会在首次读取时迁移）
-        cfg = ensure_config_file()
-        if cfg.exists():
-            try:
-                with open(cfg, encoding="utf-8") as f:
-                    raw = json.load(f)
-                tunnel = raw.get("tunnel", {}) if isinstance(raw.get("tunnel"), dict) else {}
-                derived = {
-                    "PUBLIC_HOSTNAME": tunnel.get("public_hostname", ""),
-                    "LOCAL_PORT": tunnel.get("local_port", ""),
-                    "UPSTREAM": tunnel.get("upstream", ""),
-                    "API_KEY_ENV": tunnel.get("api_key_env", ""),
-                }
-                for k, v in derived.items():
-                    if v is not None and str(v):
-                        self._env_values[k] = str(v)
-                subs = raw.get("prompt_store", {}).get("substitution_values", {})
-                if isinstance(subs, dict):
-                    for k, v in subs.items():
-                        if not k.startswith("_"):
-                            self._env_values[str(k)] = "" if v is None else str(v)
-            except Exception as e:
-                self._logger.warning("读取 %s 替换值失败: %s", cfg, e)
-        # 2. 旧路：deploy_env.json（迁移兼容）
-        if not self._env_values and self.env_config_path and self.env_config_path.exists():
+        # 1. config.load() 合并默认值 + data/config/config.json + os.getenv
+        try:
+            from .config import load as _load_cfg
+            merged = _load_cfg()
+            tunnel = merged.get("tunnel", {}) if isinstance(merged.get("tunnel"), dict) else {}
+            derived = {
+                "PUBLIC_HOSTNAME": tunnel.get("public_hostname", ""),
+                "LOCAL_PORT": tunnel.get("local_port", ""),
+                "UPSTREAM": tunnel.get("upstream", ""),
+                "API_KEY_ENV": tunnel.get("api_key_env", ""),
+            }
+            for k, v in derived.items():
+                if v is not None and str(v):
+                    self._env_values[k] = str(v)
+            subs = merged.get("prompt_store", {}).get("substitution_values", {})
+            if isinstance(subs, dict):
+                for k, v in subs.items():
+                    if not k.startswith("_"):
+                        self._env_values[str(k)] = "" if v is None else str(v)
+        except Exception as e:
+            self._logger.warning("从 config.load() 读取替换值失败: %s", e)
             try:
                 with open(self.env_config_path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
