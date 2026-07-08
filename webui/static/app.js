@@ -31,6 +31,7 @@ const WORKBENCH_ORDER = {
 
 const POLL = 5000;
 const HANDOFF_WARN_SEC = 1800;
+const ACCOUNT_TABLE_PAGE_SIZE = 10;
 
 const Icon = {
     check:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -52,7 +53,6 @@ const D = {
     pageConfig: $('#page-config'),
     homeSchedulerControls: $('#home-scheduler-controls'),
     homeActive: $('#home-active'),
-    homeTarget: $('#home-target'),
     homeCoverage: $('#home-coverage'),
     homeActiveBar: $('#home-active-bar'),
     homeNextAction: $('#home-next-action'),
@@ -96,6 +96,10 @@ const D = {
     tbody: $('#table-body'),
     empty: $('#table-empty'),
     count: $('#account-count'),
+    tablePagination: $('#table-pagination'),
+    tablePageInfo: $('#table-page-info'),
+    tablePrev: $('#table-prev'),
+    tableNext: $('#table-next'),
     search: $('#account-search'),
     sort: $('#account-sort'),
     btnImportAccounts: $('#btn-import-accounts'),
@@ -137,6 +141,7 @@ const state = {
     filter: 'all',
     query: '',
     sort: 'priority',
+    tablePage: 1,
     historyFilter: 'all',
     historyLimit: null,
     historyLimitSaving: false,
@@ -316,7 +321,7 @@ function rowWorkbenchState(r) {
     return 'idle';
 }
 
-function getTarget(config) {
+function getPoolThreshold(config) {
     return config?.pool?.min_accounts || 8;
 }
 
@@ -560,28 +565,27 @@ function renderAll(status, plan, config, historyData, schedulerStatus, opts = {}
 function renderHome() {
     const rows = state.snapshot;
     const plan = state.plan || {};
-    const target = getTarget(state.config);
+    const poolThreshold = getPoolThreshold(state.config);
     const bs = byWorkbenchState(rows);
     const active = rows.filter(r => rowWorkbenchState(r) === 'running');
     const reserve = rows.filter(r => r.eligible === true);
     const risks = riskQueue(rows, plan);
     const due = plan.due_deploys || [];
-    const pct = Math.max(0, Math.min(100, target ? (active.length / target) * 100 : 0));
-    const coverageCls = plan.coverage_gap ? 'danger' : plan.coverage_risk ? 'warning' : active.length >= target ? 'ok' : 'warning';
-    const coverageText = plan.coverage_gap ? '覆盖缺口' : plan.coverage_risk ? '覆盖风险' : active.length >= target ? '覆盖正常' : '低于目标';
+    const pct = active.length ? 100 : due.length ? 45 : 0;
+    const coverageCls = plan.coverage_gap ? 'danger' : plan.coverage_risk ? 'warning' : active.length ? 'ok' : 'warning';
+    const coverageText = plan.coverage_gap ? '覆盖缺口' : plan.coverage_risk ? '覆盖风险' : active.length ? '运行中' : due.length ? '等待接力' : '未运行';
 
     D.homeActive.textContent = active.length;
-    D.homeTarget.textContent = target;
     D.homeCoverage.className = `coverage-pill coverage-${coverageCls}`;
     D.homeCoverage.textContent = coverageText;
     D.homeActiveBar.style.width = `${pct}%`;
 
     const next = due[0];
-    D.homeNextAction.textContent = next ? `部署 ${next.uid}` : active.length >= target ? '保持轮询' : '等待调度';
-    D.homeNextDetail.textContent = next ? displayReason(next.reason || 'scheduled') : `错峰 ${fs(plan.stagger_interval)}`;
+    D.homeNextAction.textContent = next ? `部署 ${next.uid}` : active.length ? '保持心跳' : '等待启动';
+    D.homeNextDetail.textContent = next ? displayReason(next.reason || 'scheduled') : `接力间隔 ${fs(plan.stagger_interval)}`;
 
     D.homeReserve.textContent = reserve.length;
-    D.homeReserveNote.textContent = `${plan.eligible_count ?? reserve.length} 个可部署`;
+    D.homeReserveNote.textContent = `号池阈值 ${poolThreshold} · 可部署 ${plan.eligible_count ?? reserve.length}`;
     D.homeDue.textContent = due.length;
     D.homeDueNote.textContent = due[0] ? `${due[0].uid} · ${displayReason(due[0].reason || 'scheduled')}` : '暂无接力候选';
     D.homeRisk.textContent = risks.filter(x => x.type === 'risk').length;
@@ -623,21 +627,20 @@ function renderHomeAction(item) {
 function renderCommandCenter() {
     const rows = state.snapshot;
     const plan = state.plan || {};
-    const target = getTarget(state.config);
+    const poolThreshold = getPoolThreshold(state.config);
     const active = rows.filter(r => rowWorkbenchState(r) === 'running');
-    const pct = Math.max(0, Math.min(100, target ? (active.length / target) * 100 : 0));
-    const targetPct = Math.max(0, Math.min(100, target ? 100 : 0));
+    const pct = active.length ? 100 : 0;
     const risks = riskQueue(rows, plan);
 
     D.runningCount.textContent = active.length;
-    D.targetCount.textContent = target;
+    D.targetCount.textContent = poolThreshold;
     D.runningSummary.textContent = `${active.length} 个运行`;
     D.criticalCount.textContent = `${risks.length} 项`;
     D.activeBar.style.width = `${pct}%`;
-    D.activeMarker.style.left = `${targetPct}%`;
+    D.activeMarker.style.left = '100%';
 
-    const coverageCls = plan.coverage_gap ? 'danger' : plan.coverage_risk ? 'warning' : active.length >= target ? 'ok' : 'warning';
-    const coverageText = plan.coverage_gap ? '覆盖缺口' : plan.coverage_risk ? '覆盖风险' : active.length >= target ? '覆盖正常' : '低于目标';
+    const coverageCls = plan.coverage_gap ? 'danger' : plan.coverage_risk ? 'warning' : active.length ? 'ok' : 'warning';
+    const coverageText = plan.coverage_gap ? '覆盖缺口' : plan.coverage_risk ? '覆盖风险' : active.length ? '运行中' : '未运行';
     D.coverage.className = `coverage-pill coverage-${coverageCls}`;
     D.coverage.textContent = coverageText;
 
@@ -699,7 +702,7 @@ function renderCriticalItem(item) {
 function renderCards(d) {
     const rows = d.snapshot || [];
     const bs = d.by_workbench_state || byWorkbenchState(rows);
-    const target = getTarget(state.config);
+    const poolThreshold = getPoolThreshold(state.config);
     const active = bs.running || 0;
     const cooldown = bs.cooldown || 0;
     const attention = rows.filter(isRisk).length;
@@ -708,10 +711,10 @@ function renderCards(d) {
     setText('[data-stat="cooldown"]', cooldown);
     setText('[data-stat="attention"]', attention);
     setText('[data-stat="reserve"]', reserve);
-    setText('[data-stat-note="active"]', `${Math.max(0, target - active)} 个目标缺口`);
+    setText('[data-stat-note="active"]', active ? '由接力调度维持' : '等待接力或手动部署');
     setText('[data-stat-note="cooldown"]', cooldown ? '等待冷却释放' : '无冷却账号');
     setText('[data-stat-note="attention"]', attention ? '需要人工查看' : '状态平稳');
-    setText('[data-stat-note="reserve"]', `${rows.filter(r => r.eligible).length} 个可部署`);
+    setText('[data-stat-note="reserve"]', `号池阈值 ${poolThreshold} · 可部署 ${rows.filter(r => r.eligible).length}`);
 }
 
 function renderPool() {
@@ -1001,7 +1004,7 @@ function renderConfigPage() {
         ['Cloudflare 账户', c.cf_account_id_configured],
     ];
     const blocks = [
-        ['目标池', `${c.pool?.min_accounts ?? '—'} / ${c.pool?.max_accounts ?? '—'}`, '账号池上下限'],
+        ['号池范围', `${c.pool?.min_accounts ?? '—'} / ${c.pool?.max_accounts ?? '—'}`, '账号池上下限'],
         ['调度周期', fs(c.scheduler?.tick_seconds), '后台轮询节奏'],
         ['冷却窗口', fs(c.scheduler?.daily_cooldown_seconds), '单账号部署冷却'],
         ['部署并发', c.scheduler?.max_concurrent_deploys ?? '—', '当前只启用一个服务测试'],
@@ -1111,7 +1114,7 @@ function renderConfigStatus() {
         ['Cloudflare 账户', c.cf_account_id_configured],
     ];
     D.configStatus.innerHTML = `<div class="config-grid">
-        <div class="config-metric"><span>目标池</span><strong>${esc(c.pool?.min_accounts ?? '—')} / ${esc(c.pool?.max_accounts ?? '—')}</strong></div>
+        <div class="config-metric"><span>号池范围</span><strong>${esc(c.pool?.min_accounts ?? '—')} / ${esc(c.pool?.max_accounts ?? '—')}</strong></div>
         <div class="config-metric"><span>调度周期</span><strong>${fs(c.scheduler?.tick_seconds)}</strong></div>
         <div class="config-metric"><span>部署并发</span><strong>${esc(c.scheduler?.max_concurrent_deploys ?? '—')}</strong></div>
         <div class="config-metric"><span>健康检查</span><strong>${fs(c.health?.interval_seconds)}</strong></div>
@@ -1127,27 +1130,49 @@ function renderConfigStatus() {
 }
 
 function renderTable() {
-    const rows = visibleRows();
+    const allRows = visibleRows();
     if (!state.snapshot.length) {
         D.tbody.innerHTML = '';
         D.empty.classList.remove('hidden');
         D.count.textContent = '0 个账号';
+        renderTablePagination(0, 0, 0);
         return;
     }
-    if (!rows.length) {
+    if (!allRows.length) {
         D.tbody.innerHTML = '';
         D.empty.classList.remove('hidden');
         D.count.textContent = `0 / ${state.snapshot.length}`;
+        renderTablePagination(0, 0, 0);
         return;
     }
+    const pageCount = Math.max(1, Math.ceil(allRows.length / ACCOUNT_TABLE_PAGE_SIZE));
+    state.tablePage = Math.max(1, Math.min(state.tablePage, pageCount));
+    const start = (state.tablePage - 1) * ACCOUNT_TABLE_PAGE_SIZE;
+    const end = Math.min(start + ACCOUNT_TABLE_PAGE_SIZE, allRows.length);
+    const rows = allRows.slice(start, end);
     D.empty.classList.add('hidden');
-    D.count.textContent = `${rows.length} / ${state.snapshot.length}`;
+    D.count.textContent = `显示 ${start + 1}-${end} / ${allRows.length}`;
     D.tbody.innerHTML = rows.map(renderRow).join('');
+    renderTablePagination(allRows.length, state.tablePage, pageCount);
     D.tbody.querySelectorAll('[data-a="deploy"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); handleDeploy(b.dataset.uid); }));
     D.tbody.querySelectorAll('[data-a="enable"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); handleEnable(b.dataset.uid); }));
     D.tbody.querySelectorAll('[data-a="disable"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); handleDisable(b.dataset.uid); }));
     D.tbody.querySelectorAll('[data-a="delete"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); handleDeleteAccount(b.dataset.uid); }));
     D.tbody.querySelectorAll('tr[data-uid]').forEach(row => row.addEventListener('click', () => openSide(row.dataset.uid)));
+}
+
+function renderTablePagination(total, page, pageCount) {
+    if (!D.tablePagination) return;
+    const show = total > ACCOUNT_TABLE_PAGE_SIZE;
+    D.tablePagination.classList.toggle('hidden', !show);
+    if (!show) return;
+    D.tablePageInfo.textContent = `第 ${page} / ${pageCount} 页 · 每页 ${ACCOUNT_TABLE_PAGE_SIZE} 个`;
+    D.tablePrev.disabled = page <= 1;
+    D.tableNext.disabled = page >= pageCount;
+}
+
+function resetTablePage() {
+    state.tablePage = 1;
 }
 
 function visibleRows() {
@@ -1685,18 +1710,29 @@ function bindToolbar() {
     D.btnImportAccounts?.addEventListener('click', openImportModal);
     D.search.addEventListener('input', e => {
         state.query = e.target.value;
+        resetTablePage();
         renderTable();
     });
     D.sort.addEventListener('change', e => {
         state.sort = e.target.value;
+        resetTablePage();
         renderTable();
     });
     $$('.filter-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             state.filter = btn.dataset.filter || 'all';
+            resetTablePage();
             $$('.filter-tab').forEach(b => b.classList.toggle('active', b === btn));
             renderTable();
         });
+    });
+    D.tablePrev?.addEventListener('click', () => {
+        state.tablePage = Math.max(1, state.tablePage - 1);
+        renderTable();
+    });
+    D.tableNext?.addEventListener('click', () => {
+        state.tablePage += 1;
+        renderTable();
     });
     D.historyFilters.forEach(btn => {
         btn.addEventListener('click', () => {

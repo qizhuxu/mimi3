@@ -68,11 +68,11 @@
           <div class="home-hero-grid">
             <div class="home-primary-metric">
               <span id="home-active" class="home-number display">-</span>
-              <span class="home-target">/ <span id="home-target">-</span> 最低在线</span>
+              <span class="home-target">个正在运行</span>
             </div>
             <div id="home-coverage" class="coverage-pill">加载中</div>
           </div>
-          <div class="home-meter" aria-label="首页运行覆盖率">
+          <div class="home-meter" aria-label="首页运行状态">
             <div id="home-active-bar" class="home-meter-fill" style="width:0%"></div>
           </div>
         </div>
@@ -150,10 +150,10 @@
         <h1 id="command-title" class="command-title">当前运行账号</h1>
         <div class="hero-metric">
           <span id="running-count" class="hero-number display">-</span>
-          <span class="hero-target">/ <span id="target-count">-</span> 目标</span>
+          <span class="hero-target">个运行中 · 号池阈值 <span id="target-count">-</span></span>
         </div>
         <div id="coverage-status" class="coverage-pill">加载中</div>
-        <div class="bullet-meter" aria-label="运行账号与目标账号对比">
+        <div class="bullet-meter" aria-label="运行账号状态">
           <div id="active-target-bar" class="bullet-meter-fill" style="width:0%"></div>
           <span id="active-target-marker" class="bullet-meter-marker" style="left:0%"></span>
         </div>
@@ -308,6 +308,11 @@
           <div id="table-empty" class="hidden empty-state">
             <p>暂无匹配账号</p>
             <p class="ph mt-1">调整筛选或检查凭据目录</p>
+          </div>
+          <div id="table-pagination" class="table-pagination hidden" aria-label="账号表格分页">
+            <button id="table-prev" class="action-btn action-btn-ghost" type="button">上一页</button>
+            <span id="table-page-info" class="table-page-info">第 1 / 1 页</span>
+            <button id="table-next" class="action-btn action-btn-ghost" type="button">下一页</button>
           </div>
         </section>
       </div>

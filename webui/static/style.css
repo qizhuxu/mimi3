@@ -1101,6 +1101,22 @@ header {
   gap: 6px;
 }
 
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 4px 0;
+  color: var(--text-muted);
+}
+
+.table-page-info {
+  min-width: 136px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .tar { text-align: right; }
 .tac { text-align: center; }
 .hidden { display: none; }
