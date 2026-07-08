@@ -583,7 +583,7 @@ function renderHome() {
     D.homeReserve.textContent = reserve.length;
     D.homeReserveNote.textContent = `${plan.eligible_count ?? reserve.length} 个可部署`;
     D.homeDue.textContent = due.length;
-    D.homeDueNote.textContent = due[0] ? `${due[0].uid} · ${displayReason(due[0].reason || 'scheduled')}` : '暂无待部署';
+    D.homeDueNote.textContent = due[0] ? `${due[0].uid} · ${displayReason(due[0].reason || 'scheduled')}` : '暂无接力候选';
     D.homeRisk.textContent = risks.filter(x => x.type === 'risk').length;
     D.homeRiskNote.textContent = risks.some(x => x.type === 'risk') ? '需要处理' : '状态平稳';
     D.homeCooldown.textContent = bs.cooldown || 0;
@@ -667,7 +667,7 @@ function renderEmptyRunning(plan) {
     const due = (plan.due_deploys || [])[0];
     return `<div class="running-empty">
         <strong>当前无运行账号</strong>
-        <span>${due ? `下一次待部署 ${esc(due.uid)} · ${esc(displayReason(due.reason || 'scheduled'))}` : '暂无待执行部署'}</span>
+        <span>${due ? `下一次接力 ${esc(due.uid)} · ${esc(displayReason(due.reason || 'scheduled'))}` : '暂无待执行接力'}</span>
     </div>`;
 }
 
@@ -675,7 +675,7 @@ function riskQueue(rows, plan) {
     const due = (plan.due_deploys || []).map(d => ({
         type: 'deploy',
         uid: d.uid,
-        title: '待部署',
+        title: '接力候选',
         detail: d.handoff_from ? `${displayReason(d.reason || 'scheduled')} ← ${d.handoff_from}` : displayReason(d.reason || 'scheduled'),
     }));
     const risky = rows.filter(isRisk).map(r => ({
@@ -780,11 +780,11 @@ function renderSchedulerControls() {
         <div>
             <span class="scheduler-mini-label">调度循环</span>
             <strong>${esc(mode)}</strong>
-            <small>${running ? '后台循环运行中' : '当前未运行'} · 待部署 ${due}</small>
+            <small>${running ? '后台循环运行中' : '当前未运行'} · 接力候选 ${due}</small>
         </div>
         <div class="scheduler-mini-actions">
             ${schedulerActionButton(running ? 'stop' : 'start', running ? '停止调度循环' : '启动调度循环', running ? 'action-btn-danger' : 'action-btn-primary', busy)}
-            ${schedulerActionButton('tick', '执行一次调度', 'action-btn-ghost', busy || running)}
+            ${schedulerActionButton('tick', '执行一次心跳检查', 'action-btn-ghost', busy || running)}
         </div>
     </div>`;
     if (D.homeSchedulerControls) {
@@ -812,7 +812,7 @@ function renderSchedulerPage() {
             <small>并发上限 ${esc(status?.max_concurrent_deploys ?? '-')}</small>
         </div>
         <div class="scheduler-status-card">
-            <span>待部署</span><strong>${esc(due.length)}</strong>
+            <span>接力候选</span><strong>${esc(due.length)}</strong>
             <small>${plan.coverage_gap ? '存在覆盖缺口' : plan.coverage_risk ? '存在覆盖风险' : '计划正常'}</small>
         </div>`;
     }
@@ -824,8 +824,8 @@ function renderSchedulerPage() {
         D.schedulerActions.innerHTML = `<div class="scheduler-action-grid">
             ${schedulerActionButton('start', '启动调度循环', 'action-btn-primary', busy || running)}
             ${schedulerActionButton('stop', '停止调度循环', 'action-btn-danger', busy || !running)}
-            ${schedulerActionButton('tick', '执行一次调度', 'action-btn-ghost', busy || running)}
-            ${schedulerActionButton('deploy-due', '执行待部署队列', 'action-btn-primary', busy || running || !due.length)}
+            ${schedulerActionButton('tick', '执行一次心跳检查', 'action-btn-ghost', busy || running)}
+            ${schedulerActionButton('deploy-due', '执行一次接力部署', 'action-btn-primary', busy || running || !due.length)}
             ${schedulerActionButton('refresh-plan', '刷新计划', 'action-btn-ghost', Boolean(state.scheduler.pendingAction))}
         </div>`;
         bindSchedulerButtons(D.schedulerActions);
@@ -835,7 +835,7 @@ function renderSchedulerPage() {
     if (D.schedulerQueue) {
         D.schedulerQueue.innerHTML = due.length
             ? due.map(renderSchedulerQueueItem).join('')
-            : '<div class="home-empty"><strong>暂无待部署任务</strong><span>调度计划没有发现需要立即部署的账号。</span></div>';
+            : '<div class="home-empty"><strong>暂无接力候选</strong><span>当前未到接力时间，也没有检测到隧道断线。</span></div>';
         attachCardEvents(D.schedulerQueue);
     }
 
@@ -858,7 +858,7 @@ function renderSchedulerQueueItem(item) {
         <span class="mono">${esc(uid)}</span>
         <strong>${esc(displayReason(item.reason))}</strong>
         <small>${item.handoff_from ? `接力来源 ${esc(item.handoff_from)}` : '由当前调度计划生成'}</small>
-        <span class="result-badge">待执行</span>
+        <span class="result-badge">待接力</span>
     </button>`;
 }
 
@@ -1635,8 +1635,8 @@ async function handleSchedulerStop() {
 async function handleSchedulerTick() {
     await runSchedulerAction(
         'tick',
-        '执行一次调度',
-        '这会运行一次多账号调度 tick，可能触发真实部署。',
+        '执行一次心跳检查',
+        '这会运行一次调度心跳：检查活跃隧道状态，必要时触发接力部署。',
         '/api/scheduler/tick',
         { confirm: true, dry_run: false },
     );
@@ -1645,8 +1645,8 @@ async function handleSchedulerTick() {
 async function handleDeployDue() {
     await runSchedulerAction(
         'deploy-due',
-        '执行待部署队列',
-        '这会按后端重新计算的 due_deploys 执行当前待部署账号。',
+        '执行一次接力部署',
+        '这会从当前接力候选开始串行部署；失败会换下一个账号，成功后立即停止。',
         '/api/scheduler/deploy-due',
     );
 }

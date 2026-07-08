@@ -116,7 +116,9 @@ class AccountManager:
         self.logger.info(f"=== 主循环启动 tick={tick}s ===")
         while not self._cancelled:
             try:
-                await self._tick()
+                recovered = await self._tick()
+                if not recovered:
+                    await self._run_serial_schedule_step()
             except Exception as e:
                 self.logger.exception(f"主循环 tick 异常: {e}")
             try:
@@ -129,8 +131,14 @@ class AccountManager:
         self._cancelled = True
         self._stop_event.set()
 
-    async def _tick(self) -> None:
+    async def _tick(self) -> bool:
+        """执行一次心跳检查；如发现隧道失活，立即接力补位。
+
+        普通按间隔接力由 `_run_serial_schedule_step()` 推进，避免“tick”
+        被当成批量调度入口。
+        """
         now = time.time()
+        health_recovery_needed = False
         # 1. 健康检查 active 账号
         for uid in self.pool.list_in_state(S_ACTIVE):
             st = self.pool.get_state(uid)
@@ -156,10 +164,19 @@ class AccountManager:
                 else:
                     st.deploy_state = S_COOLDOWN  # 等下个调度点补位
                     st.consecutive_failures += 1
+                    health_recovery_needed = True
                 self.logger.warning(f"[{uid}] health 不活: {detail} → {st.deploy_state}")
                 self.pool.save_state(st)
 
-        # 2. 计算调度计划
+        if health_recovery_needed:
+            await self._deploy_until_success("health_recovery", first_uid=None)
+
+        self.cleanup_expired()
+        return health_recovery_needed
+
+    async def _run_serial_schedule_step(self) -> list[DeployResult]:
+        """按串行接力计划推进一次：最多从一个候选开始，失败才换下一个。"""
+        now = time.time()
         plan = self.scheduler.compute_plan(self.pool, now)
         plan = self.scheduler.assign_handoff_targets(self.pool, plan, now)
         if plan.coverage_gap:
@@ -169,38 +186,80 @@ class AccountManager:
                 f"⚠ 覆盖风险：stagger={plan.stagger_interval/60:.0f}min > claw 寿命 "
                 f"{ACTIVE_LIFETIME//60}min，相邻 claw 有缝（N={plan.active_count} 太少）"
             )
+
         if not plan.due_deploys:
-            return  # 无事可做
+            return []
 
-        # 3. 执行 due 部署（错峰：按 stagger 间隔依次部署，不集中发）
-        due = plan.due_deploys
-        if not due:
-            return
-        stagger = plan.stagger_interval
-        # 把 stagger 窗口均匀分给每个 due，至少 0 秒
-        gap = max(0, stagger / len(due)) if stagger > 0 else 0
-        for i, task in enumerate(due):
-            if self._cancelled:
-                self.logger.info("主循环取消，跳过剩余 due 部署")
-                break
-            if task.uid:
-                async with self._semaphore:
-                    if not task.uid:
-                        self.logger.error(f"handoff_from={task.handoff_from} 无 reserve 账号可接班，断档")
-                    else:
-                        await self._execute_deploy(task.uid, task.reason)
-            # 最后一个不用等
-            if i < len(due) - 1 and gap > 0:
-                self.logger.info(f"错峰等待 {gap:.0f}s，剩余 {len(due) - i - 1} 个待部署")
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=gap)
-                except asyncio.TimeoutError:
-                    pass
-
-        # 4. cleanup token 失效
-        self.cleanup_expired()
+        task = plan.due_deploys[0]
+        if not task.uid:
+            self.logger.error(f"handoff_from={task.handoff_from} 无 reserve 账号可接班，断档")
+            return []
+        return await self._deploy_until_success(task.reason, first_uid=task.uid)
 
     # ---------------- 部署执行 ----------------
+    def _pick_next_serial_uid(
+        self,
+        now: float,
+        attempted: set[str],
+        allowed_uids: Optional[set[str]] = None,
+    ) -> Optional[str]:
+        if allowed_uids is None:
+            pick = self.scheduler.pick_next_deploy(self.pool, now, exclude=attempted)
+            return pick.uid if pick else None
+
+        candidates: list[str] = []
+        for uid in sorted(allowed_uids):
+            if uid in attempted:
+                continue
+            st = self.pool.get_state(uid)
+            if st is None:
+                continue
+            if st.deploy_state in (S_DISABLED, S_RELOGIN_NEEDED, S_DEPLOYING, S_ACTIVE):
+                continue
+            if st.is_eligible_for_deploy(now, self.scheduler.daily_cooldown):
+                candidates.append(uid)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda u: self.pool.get_state(u).deployed_at or 0)
+        return candidates[0]
+
+    async def _deploy_until_success(
+        self,
+        reason: str,
+        *,
+        first_uid: Optional[str] = None,
+        allowed_uids: Optional[set[str]] = None,
+    ) -> list[DeployResult]:
+        """串行尝试账号，直到第一个部署成功或候选池耗尽。"""
+        results: list[DeployResult] = []
+        attempted: set[str] = set()
+        while not self._cancelled:
+            now = time.time()
+            uid = None
+            if first_uid and first_uid not in attempted and (
+                allowed_uids is None or first_uid in allowed_uids
+            ):
+                uid = first_uid
+            if uid is None:
+                uid = self._pick_next_serial_uid(now, attempted, allowed_uids)
+            if not uid:
+                self.logger.warning(f"串行部署无可用账号 reason={reason} attempted={len(attempted)}")
+                break
+
+            attempted.add(uid)
+            async with self._semaphore:
+                result = await self._execute_deploy(uid, reason)
+            results.append(result)
+            if result.success:
+                self.logger.info(f"串行部署成功 uid={uid} reason={reason} attempts={len(results)}")
+                break
+            self.cleanup_expired()
+            self.logger.warning(
+                f"串行部署失败，尝试下一个账号 uid={uid} error={result.error_type} "
+                f"attempts={len(results)}"
+            )
+        return results
+
     async def _execute_deploy(self, uid: str, reason: str) -> DeployResult:
         creds = self.pool.get_creds(uid)
         if not creds:

@@ -43,7 +43,7 @@ for p in (str(_PROJECT), str(_PROJECT / "src")):
         sys.path.insert(0, p)
 
 from src.config import CONFIG_FILE as _RUNTIME_CONFIG_FILE, ensure_config_file
-from src.prompt_store import ensure_prompt_templates_file
+from src.prompt_store import PromptStore, ensure_prompt_templates_file
 
 # ── FastAPI app ─────────────────────────────────────────────────
 app = FastAPI(title="mimi3 运维控制台")
@@ -242,6 +242,7 @@ def _manager_plan(manager) -> dict[str, Any]:
 
 async def _run_scheduler_loop(manager) -> None:
     original_tick = manager._tick
+    original_serial_step = manager._run_serial_schedule_step
 
     async def tracked_tick():
         operation_id = _operation_id("scheduler-loop-tick")
@@ -252,12 +253,13 @@ async def _run_scheduler_loop(manager) -> None:
             "last_error": None,
         })
         try:
-            await original_tick()
+            recovered = await original_tick()
             _scheduler_state.update({
                 "last_tick_at": time.time(),
                 "last_tick_result": "success",
                 "last_error": None,
             })
+            return recovered
         except Exception as e:
             _scheduler_state.update({
                 "last_tick_at": time.time(),
@@ -270,7 +272,29 @@ async def _run_scheduler_loop(manager) -> None:
             if _scheduler_state.get("running"):
                 _scheduler_state["mode"] = "loop"
 
+    async def tracked_serial_step():
+        operation_id = _operation_id("scheduler-loop-serial")
+        _scheduler_state.update({
+            "active_operation": "scheduler_loop_serial",
+            "operation_id": operation_id,
+            "mode": "executing",
+            "last_error": None,
+        })
+        try:
+            return await original_serial_step()
+        except Exception as e:
+            _scheduler_state.update({
+                "last_error": str(e),
+                "last_tick_result": "failed",
+            })
+            raise
+        finally:
+            _scheduler_state["active_operation"] = None
+            if _scheduler_state.get("running"):
+                _scheduler_state["mode"] = "loop"
+
     manager._tick = tracked_tick
+    manager._run_serial_schedule_step = tracked_serial_step
     try:
         await manager.run()
     except asyncio.CancelledError:
@@ -417,6 +441,49 @@ def _write_env_file(updates: dict[str, str | None]) -> None:
     tmp = _ENV_FILE.with_suffix(".tmp")
     tmp.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     os.replace(tmp, _ENV_FILE)
+
+
+def _sync_runtime_env_from_sources() -> bool:
+    """Load .env edits into this WebUI process before scheduler/deploy actions."""
+    changed = False
+    for key, value in _read_env_file().items():
+        if key and os.environ.get(key) != value:
+            os.environ[key] = value
+            changed = True
+    if changed:
+        from src.config import reload as reload_config
+
+        reload_config()
+    return changed
+
+
+def _resolve_prompt_templates_path(cfg: dict[str, Any]) -> Path:
+    raw = cfg.get("prompt_store", {}).get("templates_path", "data/prompts/templates.json")
+    path = Path(str(raw))
+    return path if path.is_absolute() else _PROJECT / path
+
+
+def _validate_scheduler_prompt_ready() -> None:
+    from src.config import settings as load_config
+
+    cfg = load_config()
+    prompt_id = str(cfg.get("deploy", {}).get("prompt_id") or "deploy.v1.standard")
+    store = PromptStore(_resolve_prompt_templates_path(cfg))
+    try:
+        template = store.get(prompt_id)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"部署模板不可用: {e}")
+    unresolved = sorted(set(re.findall(r"\{\{(\w+)\}\}", template.text)))
+    if unresolved:
+        raise HTTPException(
+            status_code=400,
+            detail="部署模板还有未配置占位符：" + "、".join(unresolved),
+        )
+
+
+def _prepare_scheduler_runtime() -> None:
+    _sync_runtime_env_from_sources()
+    _validate_scheduler_prompt_ready()
 
 
 def _clean_import_value(value: Any) -> str:
@@ -891,6 +958,7 @@ async def api_scheduler_start(request: Request):
             "message": "调度循环已经在运行",
             "status": _scheduler_status_payload(),
         })
+    _prepare_scheduler_runtime()
 
     from src.run_manager import _build_manager, _config
 
@@ -962,6 +1030,8 @@ async def api_scheduler_tick(request: Request):
         raise HTTPException(status_code=409, detail="调度循环运行中，不能同时执行单次调度")
     if _scheduler_operation_lock.locked():
         raise HTTPException(status_code=409, detail="已有调度操作正在执行")
+    if not dry_run:
+        _prepare_scheduler_runtime()
 
     async with _scheduler_operation_lock:
         from src.run_manager import _build_manager, _config
@@ -1008,9 +1078,10 @@ async def api_scheduler_tick(request: Request):
 async def api_scheduler_deploy_due(request: Request):
     body = await _require_confirm(request)
     if _scheduler_loop_running():
-        raise HTTPException(status_code=409, detail="调度循环运行中，不能同时执行待部署队列")
+        raise HTTPException(status_code=409, detail="调度循环运行中，不能同时执行接力部署")
     if _scheduler_operation_lock.locked():
         raise HTTPException(status_code=409, detail="已有调度操作正在执行")
+    _prepare_scheduler_runtime()
 
     requested = body.get("uids")
     requested_uids = {str(uid) for uid in requested} if isinstance(requested, list) else None
@@ -1024,7 +1095,6 @@ async def api_scheduler_deploy_due(request: Request):
         plan = manager.scheduler.assign_handoff_targets(manager.pool, plan)
         operation_id = _operation_id("deploy-due")
         started_at = time.time()
-        timeout = float(cfg.get("deploy.send_timeout", 900)) + 30.0
         results: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
         error = None
@@ -1035,6 +1105,7 @@ async def api_scheduler_deploy_due(request: Request):
             "last_error": None,
         })
         try:
+            selected_task = None
             for task in plan.due_deploys:
                 if not task.uid:
                     skipped.append({
@@ -1047,29 +1118,29 @@ async def api_scheduler_deploy_due(request: Request):
                 if requested_uids is not None and task.uid not in requested_uids:
                     skipped.append({"uid": task.uid, "reason": task.reason, "message": "未选择"})
                     continue
-                lock = _get_deploy_lock(task.uid)
+                selected_task = task
+                break
+
+            if selected_task is not None:
+                lock = _get_deploy_lock(selected_task.uid)
                 if lock.locked():
-                    skipped.append({"uid": task.uid, "reason": task.reason, "message": "账号正在部署中"})
-                    continue
-                async with lock:
-                    try:
-                        result = await asyncio.wait_for(
-                            manager._execute_deploy(task.uid, task.reason),
-                            timeout=timeout,
+                    skipped.append({
+                        "uid": selected_task.uid,
+                        "reason": selected_task.reason,
+                        "message": "账号正在部署中",
+                    })
+                else:
+                    async with lock:
+                        serial_results = await manager._deploy_until_success(
+                            selected_task.reason,
+                            first_uid=selected_task.uid,
+                            allowed_uids=requested_uids,
                         )
+                    for result in serial_results:
                         payload = _deploy_response(result)
-                        payload["reason"] = task.reason
-                        payload["handoff_from"] = task.handoff_from
+                        payload["reason"] = selected_task.reason
+                        payload["handoff_from"] = selected_task.handoff_from
                         results.append(payload)
-                    except asyncio.TimeoutError:
-                        results.append({
-                            "uid": task.uid,
-                            "reason": task.reason,
-                            "handoff_from": task.handoff_from,
-                            "success": False,
-                            "error_type": "timeout",
-                            "error_detail": f"部署超时 {int(timeout)} 秒",
-                        })
         except Exception as e:
             error = str(e)
             _scheduler_state["last_error"] = error

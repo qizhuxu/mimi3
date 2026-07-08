@@ -1,8 +1,8 @@
 """
-scheduler — 错峰调度计划 + 选号。
+scheduler — 串行接力调度计划 + 选号。
 
-stagger = 24h / N（N=8→3h、N=12→2h），每账号 4h 活跃、24h 滚动冷却。
-reserve = 周期内未用且不在冷却的账号；周期末 reserve→0，失败=断档告警。
+stagger 由配置固定控制（默认 120min，前端限制 60-180min）。
+每个调度点最多给出一个候选账号，失败后的换号由 AccountManager 串行执行。
 """
 
 from __future__ import annotations
@@ -54,6 +54,17 @@ class Scheduler:
         return self.config.get("scheduler.stagger_seconds",
                                self.config.get("scheduler_stagger_seconds", 7200))
 
+    def latest_success_at(self, pool: AccountPool) -> Optional[float]:
+        """最近一次成功部署时间，用作串行接力的下一次部署锚点。"""
+        stamps: list[float] = []
+        for uid in pool.all_uids():
+            st = pool.get_state(uid)
+            if st and st.deployed_at and (
+                st.last_result == "success" or st.deploy_state == S_ACTIVE
+            ):
+                stamps.append(st.deployed_at)
+        return max(stamps) if stamps else None
+
     def _eligible_idle(self, pool: AccountPool, now: float) -> list[str]:
         """可部署的 idle 账号（24h 冷却已过 + 无短退避）。"""
         out = []
@@ -76,31 +87,21 @@ class Scheduler:
 
         tasks: list[DeployTask] = []
 
-        # 1. needs_deploy（boot：实例在但无 skill 记录）→ 部署该账号自身
-        for uid in pool.list_in_state(S_NEEDS_DEPLOY):
-            tasks.append(DeployTask(uid=uid, reason="needs_deploy"))
-
-        # 2. handoff：active 且 expires_at - now < handoff_lead → 提前交接
-        for uid in active_uids:
-            st = pool.get_state(uid)
-            if st is None or st.expires_at is None:
-                continue
-            if st.expires_at - now < self.handoff_lead:
-                # 需要一个新账号接班（下面 pick_next_deploy 选）
-                tasks.append(DeployTask(uid="", reason="handoff", handoff_from=uid))
-
-        # 3. dead_claw 由 health_monitor 标 cooldown 后，这里会通过 needs_deploy/handoff 路径补位
-        #    （cooldown 账号不进 eligible，自然需要别的号）
-
-        # 4. bootstrap：active==0 且有 eligible → 部署一个启动覆盖（冷启动）
+        # 串行接力：任一调度点最多产生一个候选账号，避免一次性烧完整个队列。
         if len(active_uids) == 0 and eligible:
             pick = self.pick_next_deploy(pool, now)
             if pick:
                 tasks.append(DeployTask(uid=pick.uid, reason="bootstrap"))
+        elif active_uids and eligible:
+            last_success = self.latest_success_at(pool)
+            if last_success is not None and now >= last_success + stagger:
+                pick = self.pick_next_deploy(pool, now)
+                if pick:
+                    tasks.append(DeployTask(uid=pick.uid, reason="scheduled"))
 
         reserve = len(eligible)
-        # 覆盖缺口：无 active 且有 due 任务但 reserve=0
-        coverage_gap = (len(active_uids) == 0 and len(tasks) > 0 and reserve == 0)
+        # 覆盖缺口：无 active 且无可接力账号
+        coverage_gap = (len(active_uids) == 0 and reserve == 0)
         # 覆盖风险：stagger > claw 寿命 → 相邻 claw 之间有缝（N 太少）
         coverage_risk = stagger > ACTIVE_LIFETIME
 
