@@ -223,7 +223,8 @@ class NativeClawClient:
         url_agree = f"{BASE_URL}/open-apis/agreement/user/mimo-claw?xiaomichatbot_ph={quote(self.ph)}"
         self.last_create_error = None  # 每次进入先清，避免上次残留
 
-        async with httpx.AsyncClient() as client:
+        httpx_limits = httpx.Limits(max_connections=2, max_keepalive_connections=1)
+        async with httpx.AsyncClient(limits=httpx_limits) as client:
             # 1. 尝试签署 agreement
             try:
                 agree_resp = await client.post(
@@ -574,3 +575,6 @@ class NativeClawClient:
             finally:
                 self._listen_task = None
         self.ws = None
+        # 释放部署期间累积的 WS 消息缓存
+        self.responses.clear()
+        self.events.clear()
